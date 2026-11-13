@@ -1,13 +1,16 @@
-import { ARENA_LIST } from '../engine/ArenaPresets.ts';
+import { ARENA_LIST, PITCH_SIZE_LIST } from '../engine/ArenaPresets.ts';
 import { TEAM_KIT_LIST, cycleTeamKit } from '../render/TeamKits.ts';
+import { DISPLAY_MODE_LIST } from './MobileLayout.ts';
 import {
   AIDifficulty,
   ArenaId,
   ControlStyle,
+  DisplayMode,
   GameMode,
   MatchConfig,
   MatchDurationOption,
   MatchStats,
+  PitchSize,
   Team,
   TeamKitId,
 } from '../types.ts';
@@ -60,10 +63,12 @@ const VALID_MODES = new Set<GameMode>([
   'practice_sandbox',
 ]);
 const VALID_ARENAS = new Set<ArenaId>(ARENA_LIST);
+const VALID_PITCH_SIZES = new Set<PitchSize>(PITCH_SIZE_LIST);
 const VALID_KITS = new Set<TeamKitId>(TEAM_KIT_LIST);
 const VALID_DIFFS = new Set<AIDifficulty>(['rookie', 'pro', 'tarkam']);
 const VALID_DURS = new Set<MatchDurationOption>([60, 90, 120]);
 const VALID_CTRL = new Set<ControlStyle>(['classic', 'dribble']);
+const VALID_DISPLAY_MODES = new Set<DisplayMode>(DISPLAY_MODE_LIST);
 
 export function createEmptyCareerRecords(): CareerRecordsData {
   return {
@@ -209,10 +214,18 @@ export class CareerRecordsStore {
       const mode = parsed.mode && VALID_MODES.has(parsed.mode) ? parsed.mode : fallbackConfig.mode;
       const arena =
         parsed.arena && VALID_ARENAS.has(parsed.arena) ? parsed.arena : fallbackConfig.arena;
+      const pitchSize =
+        parsed.pitchSize && VALID_PITCH_SIZES.has(parsed.pitchSize)
+          ? parsed.pitchSize
+          : (fallbackConfig.pitchSize ?? 'standard');
       const controlStyle =
         parsed.controlStyle && VALID_CTRL.has(parsed.controlStyle)
           ? parsed.controlStyle
           : fallbackConfig.controlStyle;
+      const displayMode =
+        parsed.displayMode && VALID_DISPLAY_MODES.has(parsed.displayMode)
+          ? parsed.displayMode
+          : (fallbackConfig.displayMode ?? 'auto');
       const difficulty =
         parsed.difficulty && VALID_DIFFS.has(parsed.difficulty)
           ? parsed.difficulty
@@ -238,7 +251,9 @@ export class CareerRecordsStore {
           ...fallbackConfig,
           mode,
           arena,
+          pitchSize,
           controlStyle,
+          displayMode,
           teamAKit,
           teamBKit,
           difficulty,
@@ -263,7 +278,9 @@ export class CareerRecordsStore {
         JSON.stringify({
           mode: config.mode,
           arena: config.arena,
+          pitchSize: config.pitchSize ?? 'standard',
           controlStyle: config.controlStyle ?? 'dribble',
+          displayMode: config.displayMode ?? 'auto',
           teamAKit: config.teamAKit ?? 'garuda',
           teamBKit: config.teamBKit ?? 'cyber',
           difficulty: config.difficulty,

@@ -9,6 +9,7 @@ export interface ReplayBallSnapshot {
   rollAngle: number;
   untouchedTimer: number;
   carrierId?: number | null;
+  isExtraBall?: boolean;
 }
 
 export interface ReplayPlayerSnapshot {
@@ -92,6 +93,7 @@ export class ReplayBuffer {
         rollAngle: b.rollAngle,
         untouchedTimer: b.untouchedTimer,
         carrierId: b.carrierId ?? null,
+        isExtraBall: b.isExtraBall,
       })),
       players: players.map((p) => ({
         id: p.id,

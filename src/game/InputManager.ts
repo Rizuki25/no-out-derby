@@ -1,4 +1,29 @@
-import { PlayerInput } from '../types.ts';
+import { ControlStyle, DisplayMode, PlayerInput } from '../types.ts';
+import {
+  TouchHudVisibility,
+  getDisplayModeLabel,
+  getMobileOrientation,
+  shouldShowMobilePad,
+} from './MobileLayout.ts';
+
+export interface MobileActionHandlers {
+  onPause: () => void;
+  onToggleMute: () => void;
+  onCycleView: () => void;
+  onSkipReplay: () => void;
+  onSandboxAction: (action: string) => void;
+}
+
+export interface MobileHudSyncState {
+  visibility: TouchHudVisibility;
+  controlStyle: ControlStyle;
+  displayMode: DisplayMode;
+  muted: boolean;
+  kickChargeRatio: number;
+  dashOnCooldown: boolean;
+  portraitDeck: boolean;
+  portraitDeckTopPx?: number | null;
+}
 
 export class InputManager {
   private heldCodes = new Set<string>();
@@ -6,13 +31,17 @@ export class InputManager {
   private justReleasedCodes = new Set<string>();
 
   private prevGamepadButtons: boolean[][] = [];
-  private touchActive = false;
+  private displayMode: DisplayMode = 'auto';
+  private hasTouchSeen = false;
+  private mobileOverlayShowing = false;
   private touchMoveX = 0;
   private touchMoveY = 0;
   private touchKickHeld = false;
   private touchKickJustReleased = false;
   private touchDashJustPressed = false;
   private touchSwitchJustPressed = false;
+  private resetTouchVisuals: (() => void) | null = null;
+  private mobileHandlers: MobileActionHandlers | null = null;
 
   private boundKeyDown: (e: KeyboardEvent) => void;
   private boundKeyUp: (e: KeyboardEvent) => void;
@@ -23,22 +52,34 @@ export class InputManager {
     this.boundKeyUp = (e: KeyboardEvent) => this.onKeyUp(e);
     this.boundBlur = () => this.clearAll();
 
-    window.addEventListener('keydown', this.boundKeyDown);
-    window.addEventListener('keyup', this.boundKeyUp);
-    window.addEventListener('blur', this.boundBlur);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('keydown', this.boundKeyDown);
+      window.addEventListener('keyup', this.boundKeyUp);
+      window.addEventListener('blur', this.boundBlur);
+    }
     this.setupTouchControls();
   }
 
   destroy(): void {
-    window.removeEventListener('keydown', this.boundKeyDown);
-    window.removeEventListener('keyup', this.boundKeyUp);
-    window.removeEventListener('blur', this.boundBlur);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('keydown', this.boundKeyDown);
+      window.removeEventListener('keyup', this.boundKeyUp);
+      window.removeEventListener('blur', this.boundBlur);
+    }
   }
 
   private clearAll(): void {
     this.heldCodes.clear();
     this.justPressedCodes.clear();
     this.justReleasedCodes.clear();
+    this.resetActiveTouchInput();
+  }
+
+  private resetActiveTouchInput(): void {
+    this.touchMoveX = 0;
+    this.touchMoveY = 0;
+    this.touchKickHeld = false;
+    this.resetTouchVisuals?.();
   }
 
   private onKeyDown(e: KeyboardEvent): void {
@@ -82,14 +123,111 @@ export class InputManager {
     return this.justPressedCodes.has(code);
   }
 
-  isTouchEnabled(): boolean {
-    return this.touchActive;
+  setDisplayMode(mode: DisplayMode): void {
+    this.displayMode = mode;
+    if (!this.isMobileLayoutActive()) {
+      this.resetActiveTouchInput();
+    }
   }
 
-  setTouchSwitchVisible(visible: boolean): void {
-    const el = document.getElementById('touch-switch');
-    if (el) {
-      el.style.display = visible && this.touchActive ? 'flex' : 'none';
+  getDisplayMode(): DisplayMode {
+    return this.displayMode;
+  }
+
+  setMobileActionHandlers(handlers: MobileActionHandlers): void {
+    this.mobileHandlers = handlers;
+  }
+
+  isMobileLayoutActive(): boolean {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+      return this.displayMode === 'mobile';
+    }
+    const coarse = Boolean(window.matchMedia?.('(pointer: coarse)').matches);
+    const hasTouch = this.hasTouchSeen || (navigator.maxTouchPoints ?? 0) > 0;
+    return shouldShowMobilePad(this.displayMode, {
+      hasTouch,
+      coarsePointer: coarse,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    });
+  }
+
+  isTouchEnabled(): boolean {
+    return this.isMobileLayoutActive();
+  }
+
+  /**
+   * Synchronizes the mobile arcade deck / floating touch controls with live match state.
+   */
+  syncMobileHud(state: MobileHudSyncState): void {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+
+    const wrapper = document.getElementById('game-wrapper');
+    const touchRoot = document.getElementById('touch-controls');
+    const playPad = document.getElementById('touch-play-pad');
+    const switchBtn = document.getElementById('touch-switch');
+    const replayBar = document.getElementById('touch-replay-bar');
+    const sandboxBar = document.getElementById('touch-sandbox-bar');
+    const dashBtn = document.getElementById('touch-dash');
+    const dashLabel = document.getElementById('touch-dash-label');
+    const dashSub = dashBtn?.querySelector('.touch-btn-sub') as HTMLElement | null;
+    const kickCharge = document.getElementById('touch-kick-charge');
+    const muteBtn = document.getElementById('touch-mute');
+    const viewBtn = document.getElementById('touch-view');
+
+    const { visibility } = state;
+    const orientation = getMobileOrientation(window.innerWidth, window.innerHeight);
+
+    if (wrapper) {
+      wrapper.classList.toggle('in-match-deck', state.portraitDeck && visibility.showOverlay);
+    }
+
+    if (this.mobileOverlayShowing && !visibility.showGameplayControls) {
+      this.resetActiveTouchInput();
+    }
+    this.mobileOverlayShowing = visibility.showGameplayControls;
+
+    if (!touchRoot) return;
+
+    touchRoot.classList.toggle('active', visibility.showOverlay);
+    touchRoot.classList.toggle('portrait', orientation === 'portrait');
+    touchRoot.classList.toggle('landscape', orientation === 'landscape');
+    touchRoot.style.top =
+      state.portraitDeck && state.portraitDeckTopPx != null && visibility.showOverlay
+        ? `${state.portraitDeckTopPx}px`
+        : '';
+
+    if (playPad) {
+      playPad.style.display = visibility.showGameplayControls ? 'flex' : 'none';
+    }
+    if (switchBtn) {
+      switchBtn.style.display = visibility.showSwitchButton ? 'flex' : 'none';
+    }
+    if (replayBar) {
+      replayBar.style.display = visibility.showReplaySkip ? 'flex' : 'none';
+    }
+    if (sandboxBar) {
+      sandboxBar.style.display = visibility.showSandboxBar ? 'flex' : 'none';
+    }
+    if (dashLabel) {
+      dashLabel.textContent = state.controlStyle === 'dribble' ? 'TACKLE' : 'DASH';
+    }
+    if (dashSub) {
+      dashSub.textContent = state.controlStyle === 'dribble' ? 'STEAL' : 'BURST';
+    }
+    if (dashBtn) {
+      dashBtn.classList.toggle('on-cd', state.dashOnCooldown);
+    }
+    if (kickCharge) {
+      const pct = Math.max(0, Math.min(100, Math.round(state.kickChargeRatio * 100)));
+      kickCharge.style.height = `${pct}%`;
+    }
+    if (muteBtn) {
+      muteBtn.textContent = state.muted ? 'SFX:OFF' : 'SFX:ON';
+      muteBtn.classList.toggle('muted', state.muted);
+    }
+    if (viewBtn) {
+      viewBtn.textContent = `VIEW:${getDisplayModeLabel(state.displayMode)}`;
     }
   }
 
@@ -112,7 +250,7 @@ export class InputManager {
       if (this.heldCodes.has('ArrowDown')) p1y += 1;
     }
 
-    if (this.touchActive) {
+    if (this.mobileOverlayShowing) {
       p1x += this.touchMoveX;
       p1y += this.touchMoveY;
     }
@@ -131,7 +269,10 @@ export class InputManager {
     const p1: PlayerInput = {
       moveX: p1x,
       moveY: p1y,
-      kickHeld: p1KickCodes.some((c) => this.heldCodes.has(c)) || this.touchKickHeld || Boolean(pads[0]?.kickHeld),
+      kickHeld:
+        p1KickCodes.some((c) => this.heldCodes.has(c)) ||
+        (this.mobileOverlayShowing && this.touchKickHeld) ||
+        Boolean(pads[0]?.kickHeld),
       kickJustReleased:
         p1KickCodes.some((c) => this.justReleasedCodes.has(c)) ||
         this.touchKickJustReleased ||
@@ -297,40 +438,54 @@ export class InputManager {
   }
 
   private setupTouchControls(): void {
-    const touchRoot = document.getElementById('touch-controls');
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+
     const stickBase = document.getElementById('touch-stick-base');
     const stickKnob = document.getElementById('touch-stick-knob');
     const kickBtn = document.getElementById('touch-kick');
     const dashBtn = document.getElementById('touch-dash');
     const switchBtn = document.getElementById('touch-switch');
+    const pauseBtn = document.getElementById('touch-pause');
+    const muteBtn = document.getElementById('touch-mute');
+    const viewBtn = document.getElementById('touch-view');
+    const skipBtn = document.getElementById('touch-skip');
+    const sandboxBtns = document.querySelectorAll<HTMLElement>('#touch-sandbox-bar .sandbox-btn');
 
-    if (!touchRoot || !stickBase || !stickKnob || !kickBtn || !dashBtn || !switchBtn) return;
-
-    const activateTouch = () => {
-      if (!this.touchActive) {
-        this.touchActive = true;
-        touchRoot.classList.add('active');
-      }
-    };
+    if (!stickBase || !stickKnob || !kickBtn || !dashBtn || !switchBtn) return;
 
     window.addEventListener(
       'touchstart',
       () => {
-        activateTouch();
+        this.hasTouchSeen = true;
       },
       { passive: true }
     );
 
-    let stickTouchId: number | null = null;
+    let stickPointerId: number | null = null;
+    let kickPointerId: number | null = null;
+    let dashPointerId: number | null = null;
+    let switchPointerId: number | null = null;
+
+    this.resetTouchVisuals = () => {
+      stickPointerId = null;
+      kickPointerId = null;
+      dashPointerId = null;
+      switchPointerId = null;
+      stickKnob.style.transform = 'translate(0px, 0px)';
+      kickBtn.classList.remove('pressed');
+      dashBtn.classList.remove('pressed');
+      switchBtn.classList.remove('pressed');
+    };
+
     const updateStick = (clientX: number, clientY: number) => {
       const rect = stickBase.getBoundingClientRect();
       const cx = rect.left + rect.width * 0.5;
       const cy = rect.top + rect.height * 0.5;
-      const maxR = rect.width * 0.38;
+      const maxR = rect.width * 0.36;
       let dx = clientX - cx;
       let dy = clientY - cy;
       const dist = Math.hypot(dx, dy);
-      if (dist > maxR) {
+      if (dist > maxR && dist > 0) {
         dx = (dx / dist) * maxR;
         dy = (dy / dist) * maxR;
       }
@@ -339,81 +494,109 @@ export class InputManager {
       this.touchMoveY = Math.abs(dy) < 6 ? 0 : dy / maxR;
     };
 
-    stickBase.addEventListener('touchstart', (e) => {
+    stickBase.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      activateTouch();
-      const t = e.changedTouches[0];
-      if (!t) return;
-      stickTouchId = t.identifier;
-      updateStick(t.clientX, t.clientY);
+      e.stopPropagation();
+      if (e.pointerType === 'touch') this.hasTouchSeen = true;
+      stickPointerId = e.pointerId;
+      stickBase.setPointerCapture?.(e.pointerId);
+      updateStick(e.clientX, e.clientY);
     });
 
-    stickBase.addEventListener('touchmove', (e) => {
+    stickBase.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== stickPointerId) return;
       e.preventDefault();
-      for (let i = 0; i < e.changedTouches.length; i++) {
-        const t = e.changedTouches[i];
-        if (t.identifier === stickTouchId) {
-          updateStick(t.clientX, t.clientY);
-          break;
-        }
-      }
+      updateStick(e.clientX, e.clientY);
     });
 
-    const resetStick = (e: TouchEvent) => {
-      for (let i = 0; i < e.changedTouches.length; i++) {
-        if (e.changedTouches[i].identifier === stickTouchId) {
-          stickTouchId = null;
-          stickKnob.style.transform = 'translate(0px, 0px)';
-          this.touchMoveX = 0;
-          this.touchMoveY = 0;
-          break;
-        }
-      }
+    const releaseStick = (e: PointerEvent) => {
+      if (e.pointerId !== stickPointerId) return;
+      e.preventDefault();
+      stickPointerId = null;
+      stickKnob.style.transform = 'translate(0px, 0px)';
+      this.touchMoveX = 0;
+      this.touchMoveY = 0;
     };
-    stickBase.addEventListener('touchend', resetStick);
-    stickBase.addEventListener('touchcancel', resetStick);
+    stickBase.addEventListener('pointerup', releaseStick);
+    stickBase.addEventListener('pointercancel', releaseStick);
 
-    kickBtn.addEventListener('touchstart', (e) => {
+    kickBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      activateTouch();
+      e.stopPropagation();
+      if (e.pointerType === 'touch') this.hasTouchSeen = true;
+      kickPointerId = e.pointerId;
+      kickBtn.setPointerCapture?.(e.pointerId);
       this.touchKickHeld = true;
       kickBtn.classList.add('pressed');
     });
-    const endKick = (e: TouchEvent) => {
+    const endKick = (e: PointerEvent) => {
+      if (e.pointerId !== kickPointerId) return;
       e.preventDefault();
+      kickPointerId = null;
       if (this.touchKickHeld) {
         this.touchKickHeld = false;
         this.touchKickJustReleased = true;
       }
       kickBtn.classList.remove('pressed');
     };
-    kickBtn.addEventListener('touchend', endKick);
-    kickBtn.addEventListener('touchcancel', endKick);
+    kickBtn.addEventListener('pointerup', endKick);
+    kickBtn.addEventListener('pointercancel', endKick);
 
-    dashBtn.addEventListener('touchstart', (e) => {
+    dashBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      activateTouch();
+      e.stopPropagation();
+      if (e.pointerType === 'touch') this.hasTouchSeen = true;
+      dashPointerId = e.pointerId;
+      dashBtn.setPointerCapture?.(e.pointerId);
       this.touchDashJustPressed = true;
       dashBtn.classList.add('pressed');
     });
-    const endDash = (e: TouchEvent) => {
+    const endDash = (e: PointerEvent) => {
+      if (e.pointerId !== dashPointerId) return;
       e.preventDefault();
+      dashPointerId = null;
       dashBtn.classList.remove('pressed');
     };
-    dashBtn.addEventListener('touchend', endDash);
-    dashBtn.addEventListener('touchcancel', endDash);
+    dashBtn.addEventListener('pointerup', endDash);
+    dashBtn.addEventListener('pointercancel', endDash);
 
-    switchBtn.addEventListener('touchstart', (e) => {
+    switchBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      activateTouch();
+      e.stopPropagation();
+      if (e.pointerType === 'touch') this.hasTouchSeen = true;
+      switchPointerId = e.pointerId;
+      switchBtn.setPointerCapture?.(e.pointerId);
       this.touchSwitchJustPressed = true;
       switchBtn.classList.add('pressed');
     });
-    const endSwitch = (e: TouchEvent) => {
+    const endSwitch = (e: PointerEvent) => {
+      if (e.pointerId !== switchPointerId) return;
       e.preventDefault();
+      switchPointerId = null;
       switchBtn.classList.remove('pressed');
     };
-    switchBtn.addEventListener('touchend', endSwitch);
-    switchBtn.addEventListener('touchcancel', endSwitch);
+    switchBtn.addEventListener('pointerup', endSwitch);
+    switchBtn.addEventListener('pointercancel', endSwitch);
+
+    const bindSpecialButton = (el: HTMLElement | null, handler: () => void) => {
+      if (!el) return;
+      el.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.pointerType === 'touch') this.hasTouchSeen = true;
+        handler();
+      });
+    };
+
+    bindSpecialButton(pauseBtn, () => this.mobileHandlers?.onPause());
+    bindSpecialButton(muteBtn, () => this.mobileHandlers?.onToggleMute());
+    bindSpecialButton(viewBtn, () => this.mobileHandlers?.onCycleView());
+    bindSpecialButton(skipBtn, () => this.mobileHandlers?.onSkipReplay());
+
+    sandboxBtns.forEach((btn) => {
+      const action = btn.dataset.sb;
+      if (!action) return;
+      bindSpecialButton(btn, () => this.mobileHandlers?.onSandboxAction(action));
+    });
   }
 }

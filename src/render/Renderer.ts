@@ -13,10 +13,11 @@ import { PALETTE } from './Palette.ts';
 import { ParticleSystem } from './ParticleSystem.ts';
 import { drawPixelBall, drawPixelPlayer } from './PixelSprites.ts';
 import { drawPixelText } from './PixelFont.ts';
+import { getTeamKit } from './TeamKits.ts';
 
 interface Spectator {
   x: number;
-  y: number;
+  dy: number;
   shirt: string;
   phase: number;
 }
@@ -39,6 +40,11 @@ export class Renderer {
   private spectators: Spectator[] = [];
   private animClock = 0;
   private callouts: FloatingCallout[] = [];
+  private camX = 0;
+  private camY = 0;
+  private lastRawDt = 1 / 60;
+  private lastBounds: ArenaBounds | null = null;
+  private wasReplayFrame = false;
 
   constructor(private readonly particles: ParticleSystem) {
     const colors = [
@@ -53,7 +59,7 @@ export class Renderer {
     for (let x = 22; x <= NATIVE_WIDTH - 22; x += 11) {
       this.spectators.push({
         x: x + ((x * 7) % 3) - 1,
-        y: 23 + ((x * 3) % 4),
+        dy: 6 + ((x * 3) % 4),
         shirt: colors[(x / 11) % colors.length | 0],
         phase: x * 0.37,
       });
@@ -66,6 +72,10 @@ export class Renderer {
     this.goalFlashTimer = 0;
     this.crowdExciteTimer = 0;
     this.callouts.length = 0;
+    this.camX = 0;
+    this.camY = 0;
+    this.lastBounds = null;
+    this.wasReplayFrame = false;
   }
 
   private addCallout(text: string, x: number, y: number, color: string, life = 1.05): void {
@@ -74,10 +84,14 @@ export class Renderer {
     if (this.callouts.length >= 5) {
       this.callouts.shift();
     }
+    const minX = (this.lastBounds?.left ?? 36) + 14;
+    const maxX = (this.lastBounds?.right ?? NATIVE_WIDTH - 36) - 14;
+    const minY = (this.lastBounds?.top ?? 48) - 8;
+    const maxY = (this.lastBounds?.bottom ?? NATIVE_HEIGHT - 18) - 14;
     this.callouts.push({
       text,
-      x: Math.max(56, Math.min(NATIVE_WIDTH - 56, x)),
-      y: Math.max(34, Math.min(NATIVE_HEIGHT - 32, y - 10)),
+      x: Math.max(minX, Math.min(maxX, x)),
+      y: Math.max(minY, Math.min(maxY, y - 10)),
       vy: -22,
       color,
       life,
@@ -136,6 +150,7 @@ export class Renderer {
   }
 
   updateEffects(rawDt: number, match: MatchState): void {
+    this.lastRawDt = Math.max(0, Math.min(0.05, rawDt));
     this.animClock += rawDt;
     if (this.shakeTimer > 0) {
       this.shakeTimer = Math.max(0, this.shakeTimer - rawDt);
@@ -233,6 +248,118 @@ export class Renderer {
     );
   }
 
+  private updateCamera(
+    bounds: ArenaBounds,
+    players: ReplayPlayerSnapshot[],
+    balls: ReplayBallSnapshot[],
+    isReplay: boolean
+  ): { camX: number; camY: number; isEnlarged: boolean } {
+    const isEnlarged = bounds.right - bounds.left > 420 || bounds.bottom - bounds.top > 212;
+    if (!isEnlarged) {
+      this.camX = 0;
+      this.camY = 0;
+      this.lastBounds = bounds;
+      this.wasReplayFrame = isReplay;
+      return { camX: 0, camY: 0, isEnlarged: false };
+    }
+
+    const focusBall = balls.find((b) => !b.isExtraBall) ?? balls[0];
+    let focusX = focusBall ? focusBall.x : bounds.centerX;
+    let focusY = focusBall ? focusBall.y : bounds.centerY;
+
+    if (!isReplay && focusBall) {
+      const humans = players.filter((p) => p.humanSlot !== null);
+      if (humans.length === 1) {
+        focusX = focusX * 0.84 + humans[0].x * 0.16;
+        focusY = focusY * 0.84 + humans[0].y * 0.16;
+      }
+    }
+
+    const minCamX = bounds.left - 34;
+    const maxCamX = bounds.right + 34 - NATIVE_WIDTH;
+    const rawTargetX = focusX - NATIVE_WIDTH * 0.5;
+    const targetX =
+      maxCamX <= minCamX
+        ? (minCamX + maxCamX) * 0.5
+        : Math.max(minCamX, Math.min(maxCamX, rawTargetX));
+
+    const minCamY = bounds.top - 48;
+    const maxCamY = bounds.bottom + 18 - NATIVE_HEIGHT;
+    const rawTargetY = focusY - 144;
+    const targetY =
+      maxCamY <= minCamY
+        ? (minCamY + maxCamY) * 0.5
+        : Math.max(minCamY, Math.min(maxCamY, rawTargetY));
+
+    const shouldSnap =
+      !this.lastBounds ||
+      this.wasReplayFrame !== isReplay ||
+      Math.hypot(targetX - this.camX, targetY - this.camY) > 95;
+
+    if (shouldSnap) {
+      this.camX = targetX;
+      this.camY = targetY;
+    } else {
+      const alpha = 1 - Math.exp(-this.lastRawDt * 10);
+      this.camX += (targetX - this.camX) * alpha;
+      this.camY += (targetY - this.camY) * alpha;
+    }
+
+    this.lastBounds = bounds;
+    this.wasReplayFrame = isReplay;
+    return {
+      camX: Math.round(this.camX),
+      camY: Math.round(this.camY),
+      isEnlarged: true,
+    };
+  }
+
+  private drawOffScreenIndicators(
+    ctx: CanvasRenderingContext2D,
+    players: ReplayPlayerSnapshot[],
+    balls: ReplayBallSnapshot[],
+    camX: number,
+    camY: number,
+    teamAKit: TeamKitId,
+    teamBKit: TeamKitId
+  ): void {
+    const minSX = 12;
+    const maxSX = NATIVE_WIDTH - 12;
+    const minSY = 25;
+    const maxSY = NATIVE_HEIGHT - 10;
+
+    for (const p of players) {
+      if (p.humanSlot === null) continue;
+      const sx = p.x - camX;
+      const sy = p.y - camY;
+      if (sx >= 4 && sx <= NATIVE_WIDTH - 4 && sy >= 18 && sy <= NATIVE_HEIGHT - 4) continue;
+
+      const bx = Math.round(Math.max(minSX, Math.min(maxSX, sx)));
+      const by = Math.round(Math.max(minSY, Math.min(maxSY, sy)));
+      const kit = getTeamKit(p.team === 'A' ? teamAKit : teamBKit, p.team);
+      ctx.fillStyle = PALETTE.inkBlack;
+      ctx.fillRect(bx - 8, by - 5, 16, 10);
+      ctx.fillStyle = kit.primary;
+      ctx.fillRect(bx - 7, by - 4, 14, 8);
+      drawPixelText(ctx, `P${p.humanSlot}`, bx, by - 2, PALETTE.pureWhite, 1, 'center');
+    }
+
+    for (const b of balls) {
+      const sx = b.x - camX;
+      const sy = b.y - camY;
+      if (sx >= 4 && sx <= NATIVE_WIDTH - 4 && sy >= 18 && sy <= NATIVE_HEIGHT - 4) continue;
+
+      const bx = Math.round(Math.max(minSX, Math.min(maxSX, sx)));
+      const by = Math.round(Math.max(minSY, Math.min(maxSY, sy)));
+      ctx.fillStyle = PALETTE.inkBlack;
+      ctx.fillRect(bx - 5, by - 5, 10, 10);
+      ctx.fillStyle = PALETTE.gold;
+      ctx.fillRect(bx - 4, by - 4, 8, 8);
+      ctx.fillStyle = PALETTE.pureWhite;
+      ctx.fillRect(bx - 2, by - 2, 4, 4);
+    }
+  }
+
   private renderSceneCore(
     ctx: CanvasRenderingContext2D,
     arenaId: ArenaId,
@@ -259,6 +386,18 @@ export class Renderer {
 
     ctx.fillStyle = PALETTE.inkBlack;
     ctx.fillRect(-8, -8, NATIVE_WIDTH + 16, NATIVE_HEIGHT + 16);
+
+    const { camX, camY, isEnlarged } = this.updateCamera(
+      bounds,
+      players,
+      balls,
+      !withShakeAndParticles
+    );
+
+    ctx.save();
+    if (camX !== 0 || camY !== 0) {
+      ctx.translate(-camX, -camY);
+    }
 
     // Arena-specific backdrop (Classic Bleachers / Concrete Alley / Rooftop Night Skyline)
     this.drawArenaBackdrop(ctx, arenaId, bounds, crowdExcited);
@@ -307,10 +446,17 @@ export class Renderer {
     if (withShakeAndParticles) {
       this.particles.render(ctx);
       this.renderCallouts(ctx);
-      if (this.goalFlashTimer > 0) {
-        ctx.fillStyle = `rgba(255, 255, 255, ${Math.min(0.45, this.goalFlashTimer * 3.5)})`;
-        ctx.fillRect(0, 0, NATIVE_WIDTH, NATIVE_HEIGHT);
-      }
+    }
+
+    ctx.restore();
+
+    if (isEnlarged) {
+      this.drawOffScreenIndicators(ctx, players, balls, camX, camY, teamAKit, teamBKit);
+    }
+
+    if (withShakeAndParticles && this.goalFlashTimer > 0) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${Math.min(0.45, this.goalFlashTimer * 3.5)})`;
+      ctx.fillRect(0, 0, NATIVE_WIDTH, NATIVE_HEIGHT);
     }
 
     ctx.restore();
@@ -339,46 +485,55 @@ export class Renderer {
     bounds: ArenaBounds,
     excited: boolean
   ): void {
+    const bandTop = bounds.top - 31;
+    const spanLeft = Math.min(0, bounds.left - 64);
+    const spanRight = Math.max(NATIVE_WIDTH, bounds.right + 64);
+    const spanW = spanRight - spanLeft;
+
     if (arenaId === 'concrete') {
       // Brick alley surrounding courtyard
       ctx.fillStyle = '#1b1d24';
-      ctx.fillRect(0, 17, NATIVE_WIDTH, NATIVE_HEIGHT - 17);
+      ctx.fillRect(spanLeft, bandTop - 16, spanW, bounds.bottom - bandTop + 56);
 
       // Brick wall strip along top alley
       ctx.fillStyle = PALETTE.brickWall;
-      ctx.fillRect(0, 17, NATIVE_WIDTH, bounds.top - 17);
+      ctx.fillRect(spanLeft, bandTop, spanW, 31);
       ctx.fillStyle = '#4f221f';
-      for (let y = 19; y < bounds.top - 4; y += 6) {
-        const offset = (y % 12 === 1) ? 0 : 6;
-        for (let x = offset; x < NATIVE_WIDTH; x += 12) {
+      const brickStartX = Math.floor(spanLeft / 12) * 12;
+      for (let y = bandTop + 2; y < bounds.top - 4; y += 6) {
+        const offset = Math.abs(y - bandTop) % 12 < 6 ? 0 : 6;
+        for (let x = brickStartX + offset; x < spanRight; x += 12) {
           ctx.fillRect(x, y, 10, 4);
         }
       }
 
       // Street signs & alley lamps
       const signs = ['GANG BETON', 'PANTUL 24H', 'NO FOULS'];
-      for (let i = 0; i < signs.length; i++) {
-        const sx = 95 + i * 145;
+      const signSpacing = 145;
+      const startSignX = bounds.centerX - signSpacing;
+      const endSignX = bounds.centerX + signSpacing + (spanW > NATIVE_WIDTH ? signSpacing : 0);
+      for (let sx = startSignX - (spanW > NATIVE_WIDTH ? signSpacing : 0), idx = 0; sx <= endSignX; sx += signSpacing, idx++) {
+        if (sx < spanLeft + 42 || sx > spanRight - 42) continue;
         ctx.fillStyle = PALETTE.inkBlack;
-        ctx.fillRect(sx - 38, 34, 76, 11);
+        ctx.fillRect(sx - 38, bandTop + 17, 76, 11);
         ctx.fillStyle = PALETTE.concreteLine;
-        ctx.fillRect(sx - 37, 35, 74, 9);
-        drawPixelText(ctx, signs[i], sx, 37, PALETTE.inkBlack, 1, 'center');
+        ctx.fillRect(sx - 37, bandTop + 18, 74, 9);
+        drawPixelText(ctx, signs[idx % signs.length], sx, bandTop + 20, PALETTE.inkBlack, 1, 'center');
       }
 
       // Warm alley lamp pools on left/right curb
       ctx.fillStyle = 'rgba(255, 210, 63, 0.14)';
-      ctx.fillRect(16, 48, 28, 196);
-      ctx.fillRect(NATIVE_WIDTH - 44, 48, 28, 196);
+      ctx.fillRect(bounds.left - 36, bounds.top, 28, bounds.bottom - bounds.top);
+      ctx.fillRect(bounds.right + 8, bounds.top, 28, bounds.bottom - bounds.top);
       return;
     }
 
     if (arenaId === 'rooftop') {
       // Midnight skyline behind rooftop railing
       ctx.fillStyle = '#09101d';
-      ctx.fillRect(0, 17, NATIVE_WIDTH, NATIVE_HEIGHT - 17);
+      ctx.fillRect(spanLeft, bandTop - 20, spanW, bounds.bottom - bandTop + 60);
 
-      // Distant city buildings & lit pixel windows
+      // Distant city buildings & lit pixel windows (tiled seamlessly across wide arenas)
       const buildings = [
         { x: 10, w: 38, h: 24 },
         { x: 52, w: 28, h: 18 },
@@ -391,15 +546,20 @@ export class Renderer {
         { x: 386, w: 42, h: 24 },
         { x: 434, w: 38, h: 21 },
       ];
-      for (const b of buildings) {
-        ctx.fillStyle = PALETTE.skylineSilhouette;
-        ctx.fillRect(b.x, 45 - b.h, b.w, b.h);
-        // Tiny lit windows
-        ctx.fillStyle = PALETTE.gold;
-        for (let wx = b.x + 4; wx < b.x + b.w - 4; wx += 7) {
-          for (let wy = 45 - b.h + 4; wy < 40; wy += 6) {
-            if (((wx * 3 + wy * 7) % 5) !== 0) {
-              ctx.fillRect(wx, wy, 2, 2);
+      const skyBaseY = bounds.top - 3;
+      const startTile = Math.floor(spanLeft / 480) * 480;
+      for (let tileX = startTile; tileX < spanRight; tileX += 480) {
+        for (const b of buildings) {
+          const bx = tileX + b.x;
+          if (bx + b.w < spanLeft || bx > spanRight) continue;
+          ctx.fillStyle = PALETTE.skylineSilhouette;
+          ctx.fillRect(bx, skyBaseY - b.h, b.w, b.h);
+          ctx.fillStyle = PALETTE.gold;
+          for (let wx = bx + 4; wx < bx + b.w - 4; wx += 7) {
+            for (let wy = skyBaseY - b.h + 4; wy < skyBaseY - 5; wy += 6) {
+              if ((Math.abs(wx * 3 + wy * 7) % 5) !== 0) {
+                ctx.fillRect(wx, wy, 2, 2);
+              }
             }
           }
         }
@@ -407,44 +567,60 @@ export class Renderer {
 
       // Rooftop safety railing
       ctx.fillStyle = PALETTE.slateMid;
-      ctx.fillRect(36, 40, NATIVE_WIDTH - 72, 2);
-      for (let rx = 44; rx < NATIVE_WIDTH - 40; rx += 24) {
-        ctx.fillRect(rx, 38, 2, 7);
+      ctx.fillRect(bounds.left, bounds.top - 8, bounds.right - bounds.left, 2);
+      for (let rx = bounds.left + 8; rx < bounds.right - 4; rx += 24) {
+        ctx.fillRect(rx, bounds.top - 10, 2, 7);
       }
       return;
     }
 
     // Classic Stadium Bleachers & Reactive Spectators
     ctx.fillStyle = PALETTE.deepNavy;
-    ctx.fillRect(0, 17, NATIVE_WIDTH, 28);
+    ctx.fillRect(spanLeft, bandTop, spanW, 28);
     ctx.fillStyle = PALETTE.slateDark;
-    ctx.fillRect(0, 31, NATIVE_WIDTH, 13);
+    ctx.fillRect(spanLeft, bandTop + 14, spanW, 13);
 
     const bounceSpeed = excited ? 14 : 3.2;
-    for (const sp of this.spectators) {
-      const jump = Math.round(Math.max(0, Math.sin(this.animClock * bounceSpeed + sp.phase)) * (excited ? 3 : 1));
-      const sx = Math.round(sp.x);
-      const sy = Math.round(sp.y - jump);
-      ctx.fillStyle = PALETTE.inkBlack;
-      ctx.fillRect(sx - 2, sy - 1, 5, 7);
-      ctx.fillStyle = PALETTE.skinLight;
-      ctx.fillRect(sx - 1, sy, 3, 2);
-      ctx.fillStyle = sp.shirt;
-      ctx.fillRect(sx - 1, sy + 2, 3, 3);
+    const isStandard = spanLeft === 0 && spanRight === NATIVE_WIDTH;
+    const tileStart = isStandard ? 0 : Math.floor(spanLeft / NATIVE_WIDTH) * NATIVE_WIDTH;
+    for (let tileX = tileStart; tileX < spanRight; tileX += NATIVE_WIDTH) {
+      for (const sp of this.spectators) {
+        const sx = Math.round(tileX + sp.x);
+        if (sx < spanLeft + 10 || sx > spanRight - 10) continue;
+        const jump = Math.round(
+          Math.max(0, Math.sin(this.animClock * bounceSpeed + sp.phase)) * (excited ? 3 : 1)
+        );
+        const sy = Math.round(bandTop + sp.dy - jump);
+        ctx.fillStyle = PALETTE.inkBlack;
+        ctx.fillRect(sx - 2, sy - 1, 5, 7);
+        ctx.fillStyle = PALETTE.skinLight;
+        ctx.fillRect(sx - 1, sy, 3, 2);
+        ctx.fillStyle = sp.shirt;
+        ctx.fillRect(sx - 1, sy + 2, 3, 3);
+      }
     }
 
+    const boardStartX = bounds.left + 32;
+    const boardSpanW = Math.max(344, bounds.right - bounds.left - 64);
     ctx.fillStyle = PALETTE.slateMid;
-    ctx.fillRect(68, 36, 344, 7);
+    ctx.fillRect(boardStartX, bounds.top - 12, boardSpanW, 7);
     const boards = ['NO-OUT DERBY', 'FUTSAL PANTUL', 'ZERO FOULS', 'PINBALL ARENA'];
-    for (let i = 0; i < boards.length; i++) {
-      const bx = 72 + i * 86;
-      ctx.fillStyle = i % 2 === 0 ? PALETTE.deepNavy : '#232d40';
-      ctx.fillRect(bx, 37, 82, 5);
-      drawPixelText(ctx, boards[i], bx + 41, 38, i % 2 === 0 ? PALETTE.gold : PALETTE.offWhite, 1, 'center');
+    for (let bx = boardStartX + 4, idx = 0; bx + 82 <= boardStartX + boardSpanW; bx += 86, idx++) {
+      ctx.fillStyle = idx % 2 === 0 ? PALETTE.deepNavy : '#232d40';
+      ctx.fillRect(bx, bounds.top - 11, 82, 5);
+      drawPixelText(
+        ctx,
+        boards[idx % boards.length],
+        bx + 41,
+        bounds.top - 10,
+        idx % 2 === 0 ? PALETTE.gold : PALETTE.offWhite,
+        1,
+        'center'
+      );
     }
 
     ctx.fillStyle = PALETTE.deepNavy;
-    ctx.fillRect(0, 250, NATIVE_WIDTH, 20);
+    ctx.fillRect(spanLeft, bounds.bottom - 2, spanW, 36);
   }
 
   private drawPitchAndWalls(
@@ -509,10 +685,13 @@ export class Renderer {
     }
 
     if (isIce) {
+      const pitchW = bounds.right - bounds.left;
+      const pitchH = bounds.bottom - bounds.top;
+      const iceCount = pitchW > 460 ? 10 : 6;
       ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
-      for (let i = 0; i < 6; i++) {
-        const gx = bounds.left + 40 + i * 64;
-        const gy = bounds.top + 35 + ((i * 47) % 120);
+      for (let i = 0; i < iceCount; i++) {
+        const gx = bounds.left + 40 + ((i * Math.floor((pitchW - 80) / iceCount)) % Math.max(40, pitchW - 80));
+        const gy = bounds.top + 35 + ((i * 47) % Math.max(40, pitchH - 70));
         ctx.fillRect(gx, gy, 18, 2);
         ctx.fillRect(gx + 6, gy - 4, 10, 1);
       }
@@ -535,18 +714,19 @@ export class Renderer {
     }
 
     // Pitch markings
+    const pitchScale = Math.max(1, (bounds.right - bounds.left) / 408);
     ctx.fillStyle = lineColor;
     ctx.fillRect(bounds.centerX - 1, bounds.top, 2, bounds.bottom - bounds.top);
 
     ctx.strokeStyle = lineColor;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(bounds.centerX, bounds.centerY, 32, 0, Math.PI * 2);
+    ctx.arc(bounds.centerX, bounds.centerY, Math.round(32 * pitchScale), 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.fillRect(bounds.centerX - 2, bounds.centerY - 2, 4, 4);
 
-    const boxW = 34;
+    const boxW = Math.round(34 * pitchScale);
     const boxHalfH = Math.round((bounds.goalBottomY - bounds.goalTopY) * 0.5 + 15);
     ctx.strokeRect(bounds.left - 1, bounds.centerY - boxHalfH, boxW, boxHalfH * 2);
     ctx.strokeRect(bounds.right - boxW + 1, bounds.centerY - boxHalfH, boxW, boxHalfH * 2);

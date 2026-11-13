@@ -7,7 +7,9 @@ export const PHYSICS_SUBSTEPS = 4;
 export type Team = 'A' | 'B';
 
 export type ArenaId = 'classic' | 'concrete' | 'rooftop';
+export type PitchSize = 'standard' | 'large' | 'xl';
 export type ControlStyle = 'classic' | 'dribble';
+export type DisplayMode = 'auto' | 'mobile' | 'desktop';
 export type TeamKitId = 'garuda' | 'cyber' | 'tarkam' | 'shadow' | 'street_lime' | 'sunset';
 
 export type GameMode =
@@ -154,7 +156,9 @@ export interface PlayerInput {
 export interface MatchConfig {
   mode: GameMode;
   arena: ArenaId;
+  pitchSize?: PitchSize;
   controlStyle?: ControlStyle;
+  displayMode?: DisplayMode;
   teamAKit?: TeamKitId;
   teamBKit?: TeamKitId;
   difficulty: AIDifficulty;

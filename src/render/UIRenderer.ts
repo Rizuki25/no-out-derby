@@ -6,11 +6,18 @@ import {
   MatchDurationOption,
   NATIVE_HEIGHT,
   NATIVE_WIDTH,
+  PitchSize,
 } from '../types.ts';
-import { ARENA_LIST, ARENA_PRESETS } from '../engine/ArenaPresets.ts';
+import {
+  ARENA_LIST,
+  ARENA_PRESETS,
+  PITCH_SIZE_LIST,
+  PITCH_SIZE_PRESETS,
+} from '../engine/ArenaPresets.ts';
 import { CareerRecordsData } from '../game/CareerRecords.ts';
 import { PERK_CATALOG } from '../game/DerbyCup.ts';
 import { MatchState } from '../game/MatchState.ts';
+import { getDisplayModeLabel } from '../game/MobileLayout.ts';
 import { PALETTE } from './Palette.ts';
 import { drawPixelText } from './PixelFont.ts';
 import { drawMutatorIcon } from './PixelSprites.ts';
@@ -63,11 +70,12 @@ export interface UICallbacks {
   onCloseOverlay: () => void;
   onChangeGuidePage: (page: number) => void;
   onResetRecords: () => void;
+  onCycleDisplayMode: () => void;
 }
 
 export class UIRenderer {
-  public menuRow = 0; // 0..8
-  public pauseRow = 0; // 0..3
+  public menuRow = 0; // 0..9
+  public pauseRow = 0; // 0..4
   public resultRow = 0; // 0..1
   public perkIndex = 0; // 0..2
   public championRow = 0; // 0..1
@@ -163,7 +171,7 @@ export class UIRenderer {
       if (this.pauseGuideOpen) {
         this.renderGuideOverlay(ctx, callbacks);
       } else {
-        this.renderPauseOverlay(ctx, callbacks);
+        this.renderPauseOverlay(ctx, match, callbacks);
       }
     } else if (match.phase === 'FULL_TIME') {
       this.renderFullTimeOverlay(ctx, match, callbacks);
@@ -393,16 +401,16 @@ export class UIRenderer {
       ctx.fillRect(x, 0, 16, 42);
     }
     ctx.fillStyle = 'rgba(11, 14, 20, 0.55)';
-    ctx.fillRect(0, 0, NATIVE_WIDTH, 42);
+    ctx.fillRect(0, 0, NATIVE_WIDTH, 38);
     ctx.fillStyle = PALETTE.gold;
-    ctx.fillRect(0, 40, NATIVE_WIDTH, 2);
+    ctx.fillRect(0, 36, NATIVE_WIDTH, 2);
 
-    drawPixelText(ctx, 'NO-OUT DERBY', NATIVE_WIDTH * 0.5, 6, PALETTE.gold, 2, 'center', PALETTE.inkBlack);
+    drawPixelText(ctx, 'NO-OUT DERBY', NATIVE_WIDTH * 0.5, 5, PALETTE.gold, 2, 'center', PALETTE.inkBlack);
     drawPixelText(
       ctx,
       'FUTSAL PANTUL - NO FOULS. NO OUTS. PURE CHAOS.',
       NATIVE_WIDTH * 0.5,
-      26,
+      23,
       PALETTE.pureWhite,
       1,
       'center',
@@ -454,10 +462,35 @@ export class UIRenderer {
       action: callbacks.onToggleMute,
     });
 
+    // Mobile / Desktop View Pill under left pills (clickable & [V] hotkey)
+    const viewLabel = `[V] PAD:${getDisplayModeLabel(config.displayMode ?? 'auto')}`;
+    const viewActive = config.displayMode === 'mobile';
+    ctx.fillStyle = viewActive ? PALETTE.teamAPrimary : PALETTE.deepNavy;
+    ctx.fillRect(6, 20, 90, 13);
+    ctx.strokeStyle = viewActive ? PALETTE.gold : PALETTE.turfLine;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(6.5, 20.5, 89, 12);
+    drawPixelText(
+      ctx,
+      viewLabel,
+      51,
+      23,
+      viewActive ? PALETTE.pureWhite : PALETTE.turfLine,
+      1,
+      'center'
+    );
+    this.clickZones.push({
+      x: 6,
+      y: 20,
+      w: 90,
+      h: 13,
+      action: callbacks.onCycleDisplayMode,
+    });
+
     const panelX = 76;
     const panelW = 328;
-    const panelY = 45;
-    const rowH = 18;
+    const panelY = 41;
+    const rowH = 17;
 
     const isCup =
       config.mode === 'derby_cup_1v1' ||
@@ -468,6 +501,8 @@ export class UIRenderer {
     const controlStyle = config.controlStyle ?? 'classic';
     const controlLabel = controlStyle === 'dribble' ? 'DRIBBLE + TACKLE' : 'CLASSIC (BOUNCE)';
     const arenaLabel = ARENA_PRESETS[config.arena ?? 'classic'].name;
+    const pitchSize: PitchSize = config.pitchSize ?? 'standard';
+    const pitchSizeLabel = (PITCH_SIZE_PRESETS[pitchSize] ?? PITCH_SIZE_PRESETS.standard).label;
     const diffLabel = DIFFICULTY_OPTIONS.find((d) => d.value === config.difficulty)?.label ?? 'PRO';
     const aiUsed = config.mode !== '1v1_local' && !isCup;
     const kitA = getTeamKit(config.teamAKit, 'A');
@@ -523,6 +558,16 @@ export class UIRenderer {
       },
       {
         id: 4,
+        label: 'PITCH SIZE',
+        value: `< ${pitchSizeLabel} >`,
+        onClick: () => {
+          const idx = PITCH_SIZE_LIST.indexOf(pitchSize);
+          const next: PitchSize = PITCH_SIZE_LIST[(idx + 1) % PITCH_SIZE_LIST.length];
+          callbacks.onUpdateConfig({ pitchSize: next });
+        },
+      },
+      {
+        id: 5,
         label: 'TEAM A KIT',
         value: `< ${kitA.name} >`,
         swatch: { primary: kitA.primary, trim: kitA.trim },
@@ -531,7 +576,7 @@ export class UIRenderer {
         },
       },
       {
-        id: 5,
+        id: 6,
         label: 'TEAM B KIT',
         value: `< ${kitB.name} >`,
         swatch: { primary: kitB.primary, trim: kitB.trim },
@@ -540,7 +585,7 @@ export class UIRenderer {
         },
       },
       {
-        id: 6,
+        id: 7,
         label: 'AI LEVEL',
         value: isCup ? 'CUP LADDER (R->P->T)' : isSandbox ? `< ${diffLabel} (DEF) >` : aiUsed ? `< ${diffLabel} >` : 'HUMAN VS HUMAN',
         disabled: !aiUsed,
@@ -552,7 +597,7 @@ export class UIRenderer {
         },
       },
       {
-        id: 7,
+        id: 8,
         label: 'MUTATORS',
         value: isSandbox ? 'MANUAL [1-6] KEYS' : config.mutatorsEnabled ? '< ON (CHAOS) >' : '< OFF (CLASSIC) >',
         disabled: isSandbox,
@@ -562,7 +607,7 @@ export class UIRenderer {
         },
       },
       {
-        id: 8,
+        id: 9,
         label: 'DURATION',
         value: isSandbox ? 'UNLIMITED (FREE)' : `< ${config.durationSeconds} SEC >`,
         disabled: isSandbox,
@@ -586,12 +631,12 @@ export class UIRenderer {
         : selected
           ? PALETTE.slateMid
           : PALETTE.deepNavy;
-      ctx.fillRect(panelX, ry, panelW, 16);
+      ctx.fillRect(panelX, ry, panelW, 15);
 
       if (selected) {
         ctx.strokeStyle = PALETTE.gold;
         ctx.lineWidth = 1;
-        ctx.strokeRect(panelX + 0.5, ry + 0.5, panelW - 1, 15);
+        ctx.strokeRect(panelX + 0.5, ry + 0.5, panelW - 1, 14);
       }
 
       if (row.highlight) {
@@ -600,20 +645,20 @@ export class UIRenderer {
           : isSandbox
             ? '>>> START PRACTICE! (ENTER) <<<'
             : '>>> KICK OFF! (ENTER) <<<';
-        drawPixelText(ctx, ctaText, NATIVE_WIDTH * 0.5, ry + 5, PALETTE.pureWhite, 1, 'center');
+        drawPixelText(ctx, ctaText, NATIVE_WIDTH * 0.5, ry + 4, PALETTE.pureWhite, 1, 'center');
       } else {
         drawPixelText(
           ctx,
           row.label,
           panelX + 10,
-          ry + 5,
+          ry + 4,
           row.disabled ? PALETTE.slateLight : PALETTE.offWhite,
           1,
           'left'
         );
         if (row.swatch) {
           const sx = panelX + panelW - 20;
-          const sy = ry + 3;
+          const sy = ry + 2;
           ctx.fillStyle = PALETTE.inkBlack;
           ctx.fillRect(sx - 1, sy - 1, 12, 12);
           ctx.fillStyle = row.swatch.primary;
@@ -625,7 +670,7 @@ export class UIRenderer {
           ctx,
           row.value,
           panelX + panelW - (row.swatch ? 26 : 10),
-          ry + 5,
+          ry + 4,
           row.disabled ? PALETTE.slateLight : selected ? PALETTE.gold : PALETTE.turfLine,
           1,
           'right'
@@ -636,7 +681,7 @@ export class UIRenderer {
         x: panelX,
         y: ry,
         w: panelW,
-        h: 16,
+        h: 15,
         action: () => {
           this.menuRow = row.id;
           row.onClick();
@@ -646,17 +691,17 @@ export class UIRenderer {
 
     // Bottom Controls Strip
     ctx.fillStyle = PALETTE.deepNavy;
-    ctx.fillRect(24, 210, NATIVE_WIDTH - 48, 54);
+    ctx.fillRect(24, 213, NATIVE_WIDTH - 48, 52);
     ctx.strokeStyle = PALETTE.slateMid;
     ctx.lineWidth = 1;
-    ctx.strokeRect(24.5, 210.5, NATIVE_WIDTH - 49, 53);
+    ctx.strokeRect(24.5, 213.5, NATIVE_WIDTH - 49, 51);
 
-    drawPixelText(ctx, 'CONTROLS (KEYBOARD / GAMEPAD READY)', NATIVE_WIDTH * 0.5, 215, PALETTE.gold, 1, 'center');
+    drawPixelText(ctx, 'CONTROLS (KEYBOARD / GAMEPAD READY)', NATIVE_WIDTH * 0.5, 217, PALETTE.gold, 1, 'center');
     drawPixelText(
       ctx,
       'P1: WASD  /  SPACE OR J: KICK  /  SHIFT OR K: TACKLE  /  Q: SWITCH',
       NATIVE_WIDTH * 0.5,
-      227,
+      228,
       PALETTE.offWhite,
       1,
       'center'
@@ -674,51 +719,57 @@ export class UIRenderer {
       ctx,
       'UP/DOWN:MENU   LEFT/RIGHT:SET   H:HOW TO PLAY   R:CAREER RECORDS',
       NATIVE_WIDTH * 0.5,
-      251,
+      250,
       PALETTE.slateLight,
       1,
       'center'
     );
   }
 
-  private renderPauseOverlay(ctx: CanvasRenderingContext2D, callbacks: UICallbacks): void {
+  private renderPauseOverlay(
+    ctx: CanvasRenderingContext2D,
+    match: MatchState,
+    callbacks: UICallbacks
+  ): void {
     ctx.fillStyle = 'rgba(11, 14, 20, 0.76)';
     ctx.fillRect(0, 0, NATIVE_WIDTH, NATIVE_HEIGHT);
 
-    const bx = 140;
-    const by = 58;
-    const bw = 200;
-    const bh = 152;
+    const bx = 136;
+    const by = 48;
+    const bw = 208;
+    const bh = 172;
     ctx.fillStyle = PALETTE.deepNavy;
     ctx.fillRect(bx, by, bw, bh);
     ctx.strokeStyle = PALETTE.gold;
     ctx.lineWidth = 2;
     ctx.strokeRect(bx, by, bw, bh);
 
-    drawPixelText(ctx, 'PAUSED', NATIVE_WIDTH * 0.5, by + 14, PALETTE.gold, 2, 'center');
+    drawPixelText(ctx, 'PAUSED', NATIVE_WIDTH * 0.5, by + 13, PALETTE.gold, 2, 'center');
 
+    const padLabel = getDisplayModeLabel(match.config.displayMode ?? 'auto');
     const items = [
       { id: 0, label: 'RESUME MATCH', action: callbacks.onResume },
       { id: 1, label: 'RESTART MATCH', action: callbacks.onRematch },
-      { id: 2, label: 'HOW TO PLAY [H]', action: callbacks.onOpenGuide },
-      { id: 3, label: 'MAIN MENU', action: callbacks.onQuitToMenu },
+      { id: 2, label: `MOBILE PAD: ${padLabel}`, action: callbacks.onCycleDisplayMode },
+      { id: 3, label: 'HOW TO PLAY [H]', action: callbacks.onOpenGuide },
+      { id: 4, label: 'MAIN MENU', action: callbacks.onQuitToMenu },
     ];
 
     for (const item of items) {
-      const ry = by + 44 + item.id * 24;
+      const ry = by + 40 + item.id * 24;
       const sel = this.pauseRow === item.id;
       ctx.fillStyle = sel ? PALETTE.teamAPrimary : PALETTE.slateDark;
-      ctx.fillRect(bx + 20, ry, bw - 40, 18);
+      ctx.fillRect(bx + 18, ry, bw - 36, 18);
       if (sel) {
         ctx.strokeStyle = PALETTE.gold;
         ctx.lineWidth = 1;
-        ctx.strokeRect(bx + 20.5, ry + 0.5, bw - 41, 17);
+        ctx.strokeRect(bx + 18.5, ry + 0.5, bw - 37, 17);
       }
       drawPixelText(ctx, item.label, NATIVE_WIDTH * 0.5, ry + 6, PALETTE.pureWhite, 1, 'center');
       this.clickZones.push({
-        x: bx + 20,
+        x: bx + 18,
         y: ry,
-        w: bw - 40,
+        w: bw - 36,
         h: 18,
         action: () => {
           this.pauseRow = item.id;
@@ -1160,21 +1211,21 @@ export class UIRenderer {
         { text: '- POWER & CURVE: HOLD KICK (SPACE/J), STEER SIDEWAYS TO BEND!', color: PALETTE.turfLine },
         { text: '- ONE-TIMER VOLLEY: TAP KICK AS A FAST PASS ARRIVES!', color: PALETTE.gold },
         { text: '- P2 KEYS: ARROWS MOVE, ENTER/NUM1 KICK, RCTRL/NUM2 TACKLE.', color: PALETTE.slateLight },
+        { text: '- MOBILE TOUCH: JOYSTICK + KICK/TACKLE/SW + [V] VIEW MODE.', color: PALETTE.iceCyan },
       ],
       [
-        { text: '3 ARENAS & 6 CHAOS MUTATORS (TRIGGER MID-MATCH):', color: PALETTE.gold },
+        { text: '3 ARENAS, 3 PITCH SIZES & 6 CHAOS MUTATORS:', color: PALETTE.gold },
         { text: '- CLASSIC: BALANCED. CONCRETE: FAST WALLS. ROOFTOP: WIND!', color: PALETTE.offWhite },
+        { text: '- PITCH SIZE: STANDARD / LARGE (1.8X) / STADIUM XL (2.7X)!', color: PALETTE.turfLine },
         { text: '- MUTATORS: GIANT BALL, ICE PITCH, PINBALL 114%, HOT POTATO,', color: PALETTE.iceCyan },
         { text: '  WIDE GOALS (1.6X), DOUBLE TROUBLE (2 BALLS AT ONCE).', color: PALETTE.iceCyan },
-        { text: 'PRACTICE SANDBOX HOTKEYS (UNLIMITED FREE PLAY):', color: PALETTE.turfLine },
-        { text: '- [1-6]: TOGGLE ANY MUTATOR   [0]: CLEAR ACTIVE MUTATOR', color: PALETTE.offWhite },
-        { text: '- [F]: VOLLEY FEED PASS  [B]: RESET BALL  [T]: DEFENDER AI', color: PALETTE.offWhite },
+        { text: 'SANDBOX: [1-6] MUTATORS [0] CLEAR [F] FEED [B] BALL [T] AI', color: PALETTE.offWhite },
       ],
     ];
 
     const lines = pages[this.guidePage] ?? pages[0];
     for (let i = 0; i < lines.length; i++) {
-      drawPixelText(ctx, lines[i].text, 32, 68 + i * 21, lines[i].color, 1, 'left');
+      drawPixelText(ctx, lines[i].text, 32, 64 + i * 19, lines[i].color, 1, 'left');
     }
 
     // Footer bar + Back button

@@ -7,6 +7,7 @@ import {
   MatchDurationOption,
   MutatorType,
   PhysicsParams,
+  PitchSize,
   ARENA_CONSTANTS,
 } from '../types.ts';
 import { createArenaBounds } from '../engine/ArenaGeometry.ts';
@@ -74,14 +75,21 @@ export class MutatorManager {
   private usedMutators: MutatorType[] = [];
   private nextBallId = 100;
   private arenaId: ArenaId = 'classic';
+  private pitchSize: PitchSize = 'standard';
 
   constructor(private readonly rng: () => number = Math.random) {}
 
-  reset(durationSeconds: MatchDurationOption, enabled: boolean, arenaId: ArenaId = 'classic'): void {
+  reset(
+    durationSeconds: MatchDurationOption,
+    enabled: boolean,
+    arenaId: ArenaId = 'classic',
+    pitchSize: PitchSize = 'standard',
+  ): void {
     this.active = null;
     this.triggeredIndices.clear();
     this.usedMutators = [];
     this.arenaId = arenaId;
+    this.pitchSize = pitchSize;
     if (!enabled) {
       this.triggerSchedule = [];
       return;
@@ -198,7 +206,7 @@ export class MutatorManager {
       }
       case 'multi_ball': {
         if (balls.length < 2) {
-          const b = createArenaBounds(params.goalWidthMultiplier, this.arenaId);
+          const b = createArenaBounds(params.goalWidthMultiplier, this.arenaId, this.pitchSize);
           const angle = (this.rng() - 0.5) * 1.4;
           const dir = this.rng() < 0.5 ? 1 : -1;
           balls.push({
@@ -233,7 +241,7 @@ export class MutatorManager {
       subtitle: def.subtitle,
     });
 
-    return createArenaBounds(params.goalWidthMultiplier, this.arenaId);
+    return createArenaBounds(params.goalWidthMultiplier, this.arenaId, this.pitchSize);
   }
 
   /**
@@ -241,7 +249,7 @@ export class MutatorManager {
    */
   ensureMultiBallOnKickoff(balls: Ball[], params: PhysicsParams, bounds?: ArenaBounds): void {
     if (this.active?.type === 'multi_ball' && balls.length < 2) {
-      const b = bounds ?? createArenaBounds(params.goalWidthMultiplier, this.arenaId);
+      const b = bounds ?? createArenaBounds(params.goalWidthMultiplier, this.arenaId, this.pitchSize);
       balls.push({
         id: this.nextBallId++,
         x: b.centerX,
@@ -283,7 +291,7 @@ export class MutatorManager {
       ball.untouchedTimer = 0;
       ball.hotPotatoBeepAccum = 0;
     }
-    return createArenaBounds(1.0, this.arenaId);
+    return createArenaBounds(1.0, this.arenaId, this.pitchSize);
   }
 
   private resetPhysicsDefaults(params: PhysicsParams): PhysicsParams {
@@ -320,7 +328,7 @@ export class MutatorManager {
       balls.push(keep);
     }
 
-    return createArenaBounds(defaults.goalWidthMultiplier, this.arenaId);
+    return createArenaBounds(defaults.goalWidthMultiplier, this.arenaId, this.pitchSize);
   }
 
   private pickNextMutator(): MutatorType {

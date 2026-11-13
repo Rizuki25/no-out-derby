@@ -17,7 +17,7 @@
   [3] Gaya Kontrol Bola (Dribble vs Classic)
   [4] Daftar Lengkap Kontrol (Keyboard, Gamepad, Touch & Sandbox)
   [5] Mekanisme Fisika & Teknik Pro
-  [6] Variasi Arena (3 Lapangan)
+  [6] Variasi Arena & Pilihan Luas Lapangan (Pitch Size)
   [7] Chaos Mutators (6 Efek Acak)
   [8] Turnamen Derby Cup & Daftar Perk
   [9] Kustomisasi Jersey, Career Records & Quality of Life
@@ -121,16 +121,24 @@
   | Switch Pemain (2v2/3v3)| Q / L              | Q / L            | Numpad 0 / "/"  |
   +------------------------+--------------------+------------------+-----------------+
 
-  B. Gamepad & Mobile Touch
+  B. Gamepad & Mobile Touch Mode (Menu/Pause: [V] PAD: AUTO / MOBILE / PC)
   - Gamepad (Slot 1 & 2) : Stick Kiri / D-Pad = Gerak | Tombol A/X = Kick |
                            Tombol B/RB = Dash/Tackle | Tombol Y/LB = Switch |
                            Start = Pause.
-  - Layar Sentuh (Touch) : Virtual joystick di kiri + tombol KICK, DASH, dan SW
-                           otomatis tampil saat layar sentuh digunakan.
+  - Mode Mobile (AUTO / MOBILE / PC):
+    * AUTO mendeteksi perangkat sentuh/HP secara otomatis. Pengguna PC/Desktop juga
+      bisa memaksa tampilan Mobile lewat tombol [V] di Main Menu atau menu Pause.
+    * Layar Portrait  : Pitch tampil di bagian atas; bagian bawah menjadi dek
+                        kontroler genggam (tanpa menutupi lapangan!).
+    * Layar Landscape : Joystick kiri & tombol aksi kanan melayang transparan.
+    * Tombol Khusus Mobile: Analog Joystick 360, KICK (bar daya charge langsung),
+                        TACKLE/DASH dinamis, SWITCH (2v2/3v3), II PAUSE, SFX, VIEW,
+                        SKIP REPLAY >>, dan bar Sandbox (FEED/BALL/AI BEK/M1-M6/CLR).
 
   C. Tombol Menu & Utilitas
   - Panah / WASD         : Pindah baris menu & ubah nilai pengaturan.
   - Enter / Space / Klik : Mulai laga / konfirmasi pilihan.
+  - [V]                  : Ganti mode tampilan Pad (AUTO / MOBILE / PC).
   - [H]                  : Buka panduan cepat HOW TO PLAY (bisa di Menu & Pause).
   - [R]                  : Buka layar CAREER RECORDS dari Main Menu.
   - [M]                  : Mute / Unmute SFX & musik BGM kapan saja.
@@ -196,9 +204,10 @@
 
 
 ======================================================================================
-[6] VARIASI ARENA (3 LAPANGAN)
+[6] VARIASI ARENA & PILIHAN LUAS LAPANGAN (PITCH SIZE)
 ======================================================================================
 
+  A. 3 Pilihan Arena
   +-----------------+------------------+---------------+-----------------------------+
   | Nama Arena      | Dimensi & Gawang | Pantulan (e)  | Karakteristik Khusus        |
   +-----------------+------------------+---------------+-----------------------------+
@@ -211,6 +220,25 @@
   | ROOFTOP NIGHT   | Standar atap     | 0.90          | Latar malam + ANGIN SAMPING |
   |                 | Gawang: 58 px    | (Menengah)    | yang membelokkan bola!      |
   +-----------------+------------------+---------------+-----------------------------+
+
+  B. 3 Pilihan Luas Lapangan (Menu: PITCH SIZE) - Berlaku di Semua Mode!
+  +--------------------+------------+-------------+----------------------------------+
+  | Opsi di Menu       | Skala Luas | Gawang      | Kamera & Karakteristik           |
+  +--------------------+------------+-------------+----------------------------------+
+  | STANDARD (DEFAULT) | 1.0x       | 1.00x       | Ukuran asli, kamera statis       |
+  |                    | (Default)  | (Asli)      | menampilkan seluruh arena 100%.  |
+  +--------------------+------------+-------------+----------------------------------+
+  | LARGE (1.8X AREA)  | 1.35x Sisi | 1.15x       | ~1.8x luas total, ruang sayap    |
+  |                    | (~1.8x)    | Lebar       | lebih lega + kamera pengikut.    |
+  +--------------------+------------+-------------+----------------------------------+
+  | STADIUM XL (2.7X)  | 1.65x Sisi | 1.25x       | ~2.7x luas total, ideal 2v2/3v3  |
+  |                    | (~2.7x)    | Lebar       | atau umpan panjang + kamera.     |
+  +--------------------+------------+-------------+----------------------------------+
+
+  Catatan Kamera Lapangan Besar (Large & Stadium XL):
+  - Kamera halus mengikuti pergerakan bola (termasuk saat Instant Replay).
+  - Indikator pinggir layar otomatis muncul bila P1, P2, atau bola ekstra berada di
+    luar area pandang kamera agar pemain tidak kehilangan orientasi.
 
 
 ======================================================================================
@@ -277,8 +305,8 @@
      - Tersedia tombol RESET RECORDS dengan konfirmasi 2x klik.
 
   3. Auto-Save Preferences & Panduan In-Game
-     - Pengaturan terakhir (mode, kontrol, arena, jersey, AI level, mutator,
-       durasi, serta status mute [M]) tersimpan otomatis di browser.
+     - Pengaturan terakhir (mode, kontrol, arena, luas lapangan, mode tampilan Pad,
+       jersey, AI level, mutator, durasi, & status mute [M]) tersimpan otomatis.
      - Tekan [H] di Main Menu atau menu Pause kapan saja untuk membuka panduan
        ringkas 3 halaman langsung di dalam layar game.
 

@@ -1,5 +1,5 @@
-import { ARENA_CONSTANTS, ArenaBounds, ArenaId, Vec2 } from '../types.ts';
-import { ARENA_PRESETS } from './ArenaPresets.ts';
+import { ARENA_CONSTANTS, ArenaBounds, ArenaId, PitchSize, Vec2 } from '../types.ts';
+import { ARENA_PRESETS, PITCH_SIZE_PRESETS } from './ArenaPresets.ts';
 
 export interface WallSegment {
   ax: number;
@@ -19,17 +19,49 @@ export interface GoalPost {
   team: 'A' | 'B';
 }
 
-export function createArenaBounds(goalWidthMultiplier = 1, arenaId: ArenaId = 'classic'): ArenaBounds {
+/**
+ * Generates symmetric octagon arena bounds and goal geometry.
+ */
+export function createArenaBounds(
+  goalWidthMultiplier = 1,
+  arenaId: ArenaId = 'classic',
+  pitchSize: PitchSize = 'standard',
+): ArenaBounds {
   const preset = ARENA_PRESETS[arenaId];
+  const sizePreset = PITCH_SIZE_PRESETS[pitchSize] ?? PITCH_SIZE_PRESETS.standard;
   const centerX = Math.round((preset.left + preset.right) * 0.5);
   const centerY = Math.round((preset.top + preset.bottom) * 0.5);
-  const halfGoal = preset.baseGoalHalfHeight * goalWidthMultiplier;
+
+  if (pitchSize === 'standard' || sizePreset.scale === 1) {
+    const halfGoal = preset.baseGoalHalfHeight * goalWidthMultiplier;
+    return {
+      left: preset.left,
+      right: preset.right,
+      top: preset.top,
+      bottom: preset.bottom,
+      chamfer: preset.chamfer,
+      centerX,
+      centerY,
+      goalTopY: Math.round(centerY - halfGoal),
+      goalBottomY: Math.round(centerY + halfGoal),
+      goalDepth: ARENA_CONSTANTS.GOAL_DEPTH,
+      postRadius: ARENA_CONSTANTS.POST_RADIUS,
+    };
+  }
+
+  const baseHalfW = (preset.right - preset.left) * 0.5;
+  const baseHalfH = (preset.bottom - preset.top) * 0.5;
+  const halfW = Math.round(baseHalfW * sizePreset.scale);
+  const halfH = Math.round(baseHalfH * sizePreset.scale);
+  const chamfer = Math.round(preset.chamfer * (1 + (sizePreset.scale - 1) * 0.5));
+  const halfGoal = preset.baseGoalHalfHeight * sizePreset.goalScale * goalWidthMultiplier;
+
   return {
-    left: preset.left,
-    right: preset.right,
-    top: preset.top,
-    bottom: preset.bottom,
-    chamfer: preset.chamfer,
+    left: centerX - halfW,
+    right: centerX + halfW,
+    top: centerY - halfH,
+    bottom: centerY + halfH,
+    chamfer,
     centerX,
     centerY,
     goalTopY: Math.round(centerY - halfGoal),

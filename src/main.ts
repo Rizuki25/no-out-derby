@@ -1,5 +1,6 @@
 import {
   AIDifficulty,
+  ARENA_CONSTANTS,
   ArenaId,
   GameEvent,
   GameMode,
@@ -7,12 +8,18 @@ import {
   MatchDurationOption,
   NATIVE_HEIGHT,
   NATIVE_WIDTH,
+  PitchSize,
 } from './types.ts';
-import { ARENA_LIST } from './engine/ArenaPresets.ts';
+import { ARENA_LIST, PITCH_SIZE_LIST } from './engine/ArenaPresets.ts';
 import { GameLoop } from './engine/GameLoop.ts';
 import { CareerRecordsStore } from './game/CareerRecords.ts';
 import { MatchState } from './game/MatchState.ts';
 import { InputManager } from './game/InputManager.ts';
+import {
+  computeCanvasDisplaySize,
+  cycleDisplayMode,
+  getTouchHudVisibility,
+} from './game/MobileLayout.ts';
 import { ALL_MUTATORS } from './game/MutatorManager.ts';
 import { SoundEngine } from './audio/SoundEngine.ts';
 import { ParticleSystem } from './render/ParticleSystem.ts';
@@ -64,30 +71,59 @@ function initApp(): void {
 
   const loadedPrefs = career.loadPreferences({
     ...match.config,
+    pitchSize: 'standard',
     controlStyle: 'dribble',
+    displayMode: 'auto',
     teamAKit: 'garuda',
     teamBKit: 'cyber',
   });
   let menuConfig: MatchConfig = loadedPrefs.config;
+  input.setDisplayMode(menuConfig.displayMode ?? 'auto');
   if (loadedPrefs.muted && !sound.isMuted()) {
     sound.toggleMute();
   }
   let recordedCurrentResult = false;
+  let lastCanvasW = 0;
+  let lastCanvasH = 0;
 
-  const resizeCanvas = () => {
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const maxScaleX = vw / NATIVE_WIDTH;
-    const maxScaleY = vh / NATIVE_HEIGHT;
-    const fitScale = Math.min(maxScaleX, maxScaleY);
-    const intScale = Math.floor(fitScale);
-
-    const useScale = intScale >= 1 && intScale / fitScale >= 0.72 ? intScale : fitScale;
-    canvas.style.width = `${Math.floor(NATIVE_WIDTH * useScale)}px`;
-    canvas.style.height = `${Math.floor(NATIVE_HEIGHT * useScale)}px`;
+  const syncMobileLayoutAndHud = () => {
+    const mobileActive = input.isMobileLayoutActive();
+    const visibility = getTouchHudVisibility(
+      match.phase,
+      match.isPracticeSandbox(),
+      match.canHumanSwitchPlayer(),
+      mobileActive
+    );
+    const metrics = computeCanvasDisplaySize(
+      window.innerWidth,
+      window.innerHeight,
+      mobileActive,
+      visibility.showOverlay
+    );
+    if (metrics.width !== lastCanvasW || metrics.height !== lastCanvasH) {
+      lastCanvasW = metrics.width;
+      lastCanvasH = metrics.height;
+      canvas.style.width = `${metrics.width}px`;
+      canvas.style.height = `${metrics.height}px`;
+    }
+    const p1 = match.players.find((p) => p.humanSlot === 1);
+    const chargeRatio = p1?.isCharging
+      ? Math.min(1, p1.chargeTime / ARENA_CONSTANTS.MAX_CHARGE_TIME)
+      : 0;
+    input.syncMobileHud({
+      visibility,
+      controlStyle: (menuConfig.controlStyle ?? 'classic'),
+      displayMode: menuConfig.displayMode ?? 'auto',
+      muted: sound.isMuted(),
+      kickChargeRatio: chargeRatio,
+      dashOnCooldown: Boolean(p1 && p1.dashCooldown > 0),
+      portraitDeck: metrics.portraitDeck,
+      portraitDeckTopPx:
+        metrics.portraitDeck && visibility.showOverlay ? metrics.height + 16 : null,
+    });
   };
-  window.addEventListener('resize', resizeCanvas);
-  resizeCanvas();
+  window.addEventListener('resize', syncMobileLayoutAndHud);
+  syncMobileLayoutAndHud();
 
   const handleEvents = (events: GameEvent[]) => {
     if (events.length === 0) return;
@@ -129,16 +165,9 @@ function initApp(): void {
     sound.playMenuBlip(true);
     sound.startBgm();
     resetVisualsForMatch();
-    input.setTouchSwitchVisible(
-      menuConfig.mode === '2v2_ai' ||
-        menuConfig.mode === 'derby_cup_2v2' ||
-        menuConfig.mode === '2v2_local' ||
-        menuConfig.mode === '3v3_ai' ||
-        menuConfig.mode === 'derby_cup_3v3' ||
-        menuConfig.mode === '3v3_local'
-    );
     const evs = match.startMatch(menuConfig);
     handleEvents(evs);
+    syncMobileLayoutAndHud();
   };
 
   const rematch = () => {
@@ -196,6 +225,15 @@ function initApp(): void {
     sound.playMenuBlip(false);
     menuConfig = { ...menuConfig, ...patch };
     career.savePreferences(menuConfig, sound.isMuted());
+  };
+
+  const cycleViewMode = () => {
+    sound.unlock();
+    const next = cycleDisplayMode(menuConfig.displayMode ?? 'auto', 1);
+    updateConfig({ displayMode: next });
+    match.config.displayMode = next;
+    input.setDisplayMode(next);
+    syncMobileLayoutAndHud();
   };
 
   const openGuide = () => {
@@ -259,14 +297,18 @@ function initApp(): void {
     } else if (row === 3 && !isCup) {
       updateConfig({ arena: cycleValue<ArenaId>(ARENA_LIST, menuConfig.arena ?? 'classic', dir) });
     } else if (row === 4) {
-      updateConfig({ teamAKit: cycleTeamKit(kitA, kitB, dir) });
+      updateConfig({
+        pitchSize: cycleValue<PitchSize>(PITCH_SIZE_LIST, menuConfig.pitchSize ?? 'standard', dir),
+      });
     } else if (row === 5) {
+      updateConfig({ teamAKit: cycleTeamKit(kitA, kitB, dir) });
+    } else if (row === 6) {
       updateConfig({ teamBKit: cycleTeamKit(kitB, kitA, dir) });
-    } else if (row === 6 && aiUsed) {
+    } else if (row === 7 && aiUsed) {
       updateConfig({ difficulty: cycleValue(DIFF_LIST, menuConfig.difficulty, dir) });
-    } else if (row === 7 && !isSandbox) {
-      updateConfig({ mutatorsEnabled: !menuConfig.mutatorsEnabled });
     } else if (row === 8 && !isSandbox) {
+      updateConfig({ mutatorsEnabled: !menuConfig.mutatorsEnabled });
+    } else if (row === 9 && !isSandbox) {
       updateConfig({ durationSeconds: cycleValue(DUR_LIST, menuConfig.durationSeconds, dir) });
     }
   };
@@ -310,13 +352,17 @@ function initApp(): void {
         openRecords();
         return;
       }
+      if (input.wasKeyJustPressed('KeyV')) {
+        cycleViewMode();
+        return;
+      }
 
       if (nav.up) {
         sound.playMenuBlip(false);
-        ui.menuRow = (ui.menuRow + 8) % 9;
+        ui.menuRow = (ui.menuRow + 9) % 10;
       } else if (nav.down) {
         sound.playMenuBlip(false);
-        ui.menuRow = (ui.menuRow + 1) % 9;
+        ui.menuRow = (ui.menuRow + 1) % 10;
       } else if (nav.left || nav.right) {
         adjustMenuRow(ui.menuRow, nav.right ? 1 : -1);
       } else if (nav.confirm) {
@@ -386,14 +432,17 @@ function initApp(): void {
       }
       if (nav.up) {
         sound.playMenuBlip(false);
-        ui.pauseRow = (ui.pauseRow + 3) % 4;
+        ui.pauseRow = (ui.pauseRow + 4) % 5;
       } else if (nav.down) {
         sound.playMenuBlip(false);
-        ui.pauseRow = (ui.pauseRow + 1) % 4;
+        ui.pauseRow = (ui.pauseRow + 1) % 5;
+      } else if ((nav.left || nav.right) && ui.pauseRow === 2) {
+        cycleViewMode();
       } else if (nav.confirm) {
         if (ui.pauseRow === 0) togglePause();
         else if (ui.pauseRow === 1) rematch();
-        else if (ui.pauseRow === 2) openGuide();
+        else if (ui.pauseRow === 2) cycleViewMode();
+        else if (ui.pauseRow === 3) openGuide();
         else quitToMenu();
       }
       return;
@@ -421,32 +470,66 @@ function initApp(): void {
     }
   };
 
+  const triggerSandboxCommand = (action: string) => {
+    if (!match.isPracticeSandbox() || (match.phase !== 'PLAYING' && match.phase !== 'KICKOFF')) {
+      return;
+    }
+    if (action === 'clear') {
+      sound.playMenuBlip(false);
+      handleEvents(match.clearSandboxMutator());
+      return;
+    }
+    if (action === 'feed') {
+      sound.playMenuBlip(false);
+      match.triggerSandboxFeedPass();
+      return;
+    }
+    if (action === 'ball') {
+      sound.playMenuBlip(false);
+      match.resetSandboxBall();
+      return;
+    }
+    if (action === 'def') {
+      sound.playMenuBlip(true);
+      match.toggleSandboxDefender();
+      return;
+    }
+    if (action.startsWith('m')) {
+      const idx = Number.parseInt(action.slice(1), 10);
+      if (idx >= 0 && idx < ALL_MUTATORS.length) {
+        sound.unlock();
+        handleEvents(match.triggerSandboxMutator(ALL_MUTATORS[idx]));
+      }
+    }
+  };
+
+  input.setMobileActionHandlers({
+    onPause: togglePause,
+    onToggleMute: toggleMute,
+    onCycleView: cycleViewMode,
+    onSkipReplay: skipReplay,
+    onSandboxAction: triggerSandboxCommand,
+  });
+
   const handleSandboxInput = () => {
     if (!match.isPracticeSandbox() || match.phase !== 'PLAYING') return;
 
     const digitCodes = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'];
     for (let i = 0; i < digitCodes.length; i++) {
       if (input.wasKeyJustPressed(digitCodes[i])) {
-        sound.unlock();
-        const evs = match.triggerSandboxMutator(ALL_MUTATORS[i]);
-        handleEvents(evs);
+        triggerSandboxCommand(`m${i}`);
         return;
       }
     }
 
     if (input.wasKeyJustPressed('Digit0')) {
-      sound.playMenuBlip(false);
-      const evs = match.clearSandboxMutator();
-      handleEvents(evs);
+      triggerSandboxCommand('clear');
     } else if (input.wasKeyJustPressed('KeyF')) {
-      sound.playMenuBlip(false);
-      match.triggerSandboxFeedPass();
+      triggerSandboxCommand('feed');
     } else if (input.wasKeyJustPressed('KeyB')) {
-      sound.playMenuBlip(false);
-      match.resetSandboxBall();
+      triggerSandboxCommand('ball');
     } else if (input.wasKeyJustPressed('KeyT')) {
-      sound.playMenuBlip(true);
-      match.toggleSandboxDefender();
+      triggerSandboxCommand('def');
     }
   };
 
@@ -523,11 +606,13 @@ function initApp(): void {
         onCloseOverlay: closeOverlay,
         onChangeGuidePage: changeGuidePage,
         onResetRecords: resetRecordsAction,
+        onCycleDisplayMode: cycleViewMode,
       });
     },
     (rawDt) => {
       ui.update(rawDt);
       renderer.updateEffects(rawDt, match);
+      syncMobileLayoutAndHud();
     }
   );
 

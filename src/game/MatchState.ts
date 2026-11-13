@@ -25,11 +25,13 @@ export class MatchState {
   public config: MatchConfig = {
     mode: '1v1_ai',
     arena: 'classic',
+    pitchSize: 'standard',
     difficulty: 'pro',
     durationSeconds: 90,
     mutatorsEnabled: true,
     replayEnabled: true,
     controlStyle: 'classic',
+    displayMode: 'auto',
     teamAKit: 'garuda',
     teamBKit: 'cyber',
   };
@@ -95,7 +97,9 @@ export class MatchState {
     this.config = {
       ...config,
       arena: config.arena ?? 'classic',
+      pitchSize: config.pitchSize ?? 'standard',
       controlStyle: config.controlStyle ?? 'classic',
+      displayMode: config.displayMode ?? 'auto',
       teamAKit: config.teamAKit ?? 'garuda',
       teamBKit: config.teamBKit ?? 'cyber',
       replayEnabled: isSandbox ? false : (config.replayEnabled ?? true),
@@ -133,11 +137,13 @@ export class MatchState {
     this.stats = this.createEmptyStats();
     this.params = createDefaultPhysicsParams(this.config.arena);
     this.params.controlStyle = this.config.controlStyle ?? 'classic';
-    this.bounds = createArenaBounds(1.0, this.config.arena);
+    const pitchSize = this.config.pitchSize ?? 'standard';
+    this.bounds = createArenaBounds(1.0, this.config.arena, pitchSize);
     this.mutators.reset(
       this.config.durationSeconds,
       isSandbox ? false : this.config.mutatorsEnabled,
-      this.config.arena
+      this.config.arena,
+      pitchSize
     );
 
     this.spawnEntitiesForMode();
@@ -232,6 +238,17 @@ export class MatchState {
 
   hasKeepers(): boolean {
     return !this.isTwoVsTwoMode();
+  }
+
+  canHumanSwitchPlayer(): boolean {
+    return (
+      this.config.mode === '2v2_ai' ||
+      this.config.mode === 'derby_cup_2v2' ||
+      this.config.mode === '2v2_local' ||
+      this.config.mode === '3v3_ai' ||
+      this.config.mode === 'derby_cup_3v3' ||
+      this.config.mode === '3v3_local'
+    );
   }
 
   isPracticeSandbox(): boolean {
@@ -656,6 +673,10 @@ export class MatchState {
     };
   }
 
+  private getKickoffSpanScale(): number {
+    return Math.max(1, ((this.bounds.right - this.bounds.left) * 0.5) / 204);
+  }
+
   private spawnEntitiesForMode(): void {
     this.players = [];
     const { mode } = this.config;
@@ -677,21 +698,26 @@ export class MatchState {
 
     const cy = this.bounds.centerY;
     const cx = this.bounds.centerX;
+    const spanScale = this.getKickoffSpanScale();
+    const off1v1X = Math.round(54 * spanScale);
+    const off2v2NearX = Math.round(48 * spanScale);
+    const off2v2FarX = Math.round(96 * spanScale);
+    const off2v2Y = Math.round(26 * spanScale);
 
     if (isSandbox) {
-      this.players.push(makePlayer('A', 'outfield', 1, cx - 54, cy, 9));
+      this.players.push(makePlayer('A', 'outfield', 1, cx - off1v1X, cy, 9));
       if (this.sandboxDefenderEnabled) {
-        this.players.push(makePlayer('B', 'outfield', null, cx + 54, cy, 5));
+        this.players.push(makePlayer('B', 'outfield', null, cx + off1v1X, cy, 5));
       }
     } else if (!hasTwoOutfield) {
-      this.players.push(makePlayer('A', 'outfield', 1, cx - 54, cy, 9));
-      this.players.push(makePlayer('B', 'outfield', is2PLocal ? 2 : null, cx + 54, cy, 10));
+      this.players.push(makePlayer('A', 'outfield', 1, cx - off1v1X, cy, 9));
+      this.players.push(makePlayer('B', 'outfield', is2PLocal ? 2 : null, cx + off1v1X, cy, 10));
     } else {
-      this.players.push(makePlayer('A', 'outfield', 1, cx - 48, cy - 26, 9));
-      this.players.push(makePlayer('A', 'outfield', isCoop ? 2 : null, cx - 96, cy + 26, 4));
+      this.players.push(makePlayer('A', 'outfield', 1, cx - off2v2NearX, cy - off2v2Y, 9));
+      this.players.push(makePlayer('A', 'outfield', isCoop ? 2 : null, cx - off2v2FarX, cy + off2v2Y, 4));
 
-      this.players.push(makePlayer('B', 'outfield', is2PLocal ? 2 : null, cx + 48, cy + 26, 10));
-      this.players.push(makePlayer('B', 'outfield', null, cx + 96, cy - 26, 5));
+      this.players.push(makePlayer('B', 'outfield', is2PLocal ? 2 : null, cx + off2v2NearX, cy + off2v2Y, 10));
+      this.players.push(makePlayer('B', 'outfield', null, cx + off2v2FarX, cy - off2v2Y, 5));
     }
 
     if (hasKeepers) {
@@ -730,14 +756,20 @@ export class MatchState {
       p.animState = 'idle';
     };
 
+    const spanScale = this.getKickoffSpanScale();
+    const off1v1X = Math.round(54 * spanScale);
+    const off2v2NearX = Math.round(48 * spanScale);
+    const off2v2FarX = Math.round(96 * spanScale);
+    const off2v2Y = Math.round(26 * spanScale);
+
     if (!hasTwoOutfield) {
-      if (teamAOutfield[0]) resetPlayer(teamAOutfield[0], cx - 54, cy);
-      if (teamBOutfield[0]) resetPlayer(teamBOutfield[0], cx + 54, cy);
+      if (teamAOutfield[0]) resetPlayer(teamAOutfield[0], cx - off1v1X, cy);
+      if (teamBOutfield[0]) resetPlayer(teamBOutfield[0], cx + off1v1X, cy);
     } else {
-      if (teamAOutfield[0]) resetPlayer(teamAOutfield[0], cx - 48, cy - 26);
-      if (teamAOutfield[1]) resetPlayer(teamAOutfield[1], cx - 96, cy + 26);
-      if (teamBOutfield[0]) resetPlayer(teamBOutfield[0], cx + 48, cy + 26);
-      if (teamBOutfield[1]) resetPlayer(teamBOutfield[1], cx + 96, cy - 26);
+      if (teamAOutfield[0]) resetPlayer(teamAOutfield[0], cx - off2v2NearX, cy - off2v2Y);
+      if (teamAOutfield[1]) resetPlayer(teamAOutfield[1], cx - off2v2FarX, cy + off2v2Y);
+      if (teamBOutfield[0]) resetPlayer(teamBOutfield[0], cx + off2v2NearX, cy + off2v2Y);
+      if (teamBOutfield[1]) resetPlayer(teamBOutfield[1], cx + off2v2FarX, cy - off2v2Y);
     }
 
     if (hasKeepers) {
@@ -855,7 +887,10 @@ export class MatchState {
             'B',
             'outfield',
             null,
-            Math.min(this.bounds.right - 56, this.bounds.centerX + 54),
+            Math.min(
+              this.bounds.right - 56,
+              this.bounds.centerX + Math.round(54 * this.getKickoffSpanScale())
+            ),
             this.bounds.centerY,
             5
           )

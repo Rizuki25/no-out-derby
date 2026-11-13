@@ -1,4 +1,4 @@
-import { ARENA_CONSTANTS, ArenaId } from '../types.ts';
+import { ARENA_CONSTANTS, ArenaId, PitchSize } from '../types.ts';
 
 export interface ArenaPreset {
   id: ArenaId;
@@ -57,3 +57,33 @@ export const ARENA_PRESETS: Record<ArenaId, ArenaPreset> = {
 };
 
 export const ARENA_LIST: ArenaId[] = ['classic', 'concrete', 'rooftop'];
+
+export interface PitchSizePreset {
+  id: PitchSize;
+  label: string;
+  scale: number;
+  goalScale: number;
+}
+
+export const PITCH_SIZE_PRESETS: Record<PitchSize, PitchSizePreset> = {
+  standard: {
+    id: 'standard',
+    label: 'STANDARD (DEFAULT)',
+    scale: 1.0,
+    goalScale: 1.0,
+  },
+  large: {
+    id: 'large',
+    label: 'LARGE (1.8X AREA)',
+    scale: 1.35,
+    goalScale: 1.15,
+  },
+  xl: {
+    id: 'xl',
+    label: 'STADIUM XL (2.7X)',
+    scale: 1.65,
+    goalScale: 1.25,
+  },
+};
+
+export const PITCH_SIZE_LIST: PitchSize[] = ['standard', 'large', 'xl'];
