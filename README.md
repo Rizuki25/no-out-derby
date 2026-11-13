@@ -1,0 +1,129 @@
+# No-Out Derby (Futsal Pantul)
+
+Game **2D Pixel Arcade Futsal** berkecepatan tinggi di arena oktagon tertutup — **tanpa garis keluar (*out*), tanpa pelanggaran (*foul*), dan tanpa henti.** Dibangun dari nol menggunakan **TypeScript**, **HTML5 Canvas (`480x270` pixel-perfect)**, dan **Web Audio API** (chiptune retro BGM + SFX prosedural) tanpa aset eksternal atau dependensi runtime tambahan.
+
+> Dokumentasi lengkap peraturan, seluruh mode, kontrol detail, mekanisme fisika, dan tips bermain dapat dibaca di [`game.prd`](./game.prd).
+
+---
+
+## Fitur Utama
+
+- **12 Mode Permainan:**
+  - **Quick Match & Versus:** `1v1 vs AI`, `2v2 vs AI`, `3v3 (GK+2) vs AI`, `2P 1v1 Versus`, `2P 2v2 Versus`, `2P 3v3 Versus`, `2P 2v2 Co-op`, dan `2P 3v3 Co-op`.
+  - **Derby Cup Tournament (`1v1`, `2v2`, `3v3`):** Turnamen 3 babak (*Quarter Final* → *Semi Final* → *Grand Final*) dengan sistem pemilihan **Perk** permanen antarrbabak (`Turbo Boots`, `Iron Leg`, `Quick Dash`, `Banana Curve`, `Steel Body`, `Magnet Touch`).
+  - **Practice / Chaos Sandbox:** Mode latihan bebas tanpa batas waktu dengan tombol pemicu mutator instan (`1`–`6`, `0`), umpan silang *One-Timer* instan (`F`), reset bola (`B`), dan toggle bek AI sparring (`T`).
+- **2 Gaya Kontrol Bola (`BALL CTRL`):**
+  - **`Dribble + Tackle`:** Sentuh bola untuk menggiring di kaki + *Dash-Tackle* untuk membuat lawan stun dan mencuri penguasaan bola (`STEAL!`).
+  - **`Classic (Bounce)`:** Kontrol pantul pinball arkade murni pada setiap sentuhan.
+- **Mekanisme Aksi & Game Feel:**
+  - **Power Shot Charge & Banana Curve:** Tahan tombol *Kick* untuk mengisi daya dan gerakkan ke samping saat melepas untuk tembakan melengkung (*Magnus spin*).
+  - **One-Timer / Volley Shot:** Ayunkan tendangan tepat saat umpan cepat atau pantulan mengarah ke pemain untuk tembakan super cepat dengan jejak cyan-emas dan *hitstop*.
+  - **Golden Goal Overtime & Instant Replay:** Seri saat `00:00` otomatis masuk babak *Golden Goal*; gol spektakuler memutar ulang 3 detik terakhir (180 frame @ 60Hz) bergaya siaran retro (`REC / REPLAY`).
+  - **Floating Callouts:** Teks piksel di lapangan untuk momen `ONE-TIMER!`, `BANK SHOT!`, `TOP BIN!`, `ROCKET!`, `GREAT SAVE!`, `CLANG!`, dan `STEAL!`.
+- **3 Variasi Arena & 6 Chaos Mutators:**
+  - Arena **Classic Stadium**, **Concrete Alley** (lapangan sempit, pantulan keras), dan **Rooftop Night** (angin samping dinamis).
+  - Mutator **Giant Ball**, **Slippery Pitch**, **Pinball Mode (114%)**, **Hot Potato (6s explosion)**, **Wide Goals (1.6x)**, dan **Double Trouble (2 Balls)**.
+- **Kustomisasi Kit Klub & Progresi Lokal:**
+  - 6 preset jersey kontras tinggi (`Garuda Red`, `Cyber Blue`, `Tarkam Gold`, `Shadow Violet`, `Lime Street`, `Sunset Flare`) yang otomatis mencegah tabrakan warna antar tim.
+  - **Career Records** & penyimpanan preferensi otomatis di `localStorage`, dilengkapi layar **How To Play (`[H]`)** dan **Records (`[R]`)** langsung di dalam game.
+- **Dukungan Multi-Input:** Keyboard (1P & 2P lokal), Gamepad API, serta Touch Virtual Joystick/Buttons untuk perangkat mobile.
+
+---
+
+## Ringkasan Kontrol
+
+| Aksi | Player 1 (Solo) | Player 1 (2P) | Player 2 (2P) |
+| :--- | :--- | :--- | :--- |
+| **Gerak** | `WASD` / `Panah` | `WASD` | `Panah` |
+| **Kick / Hold Power** | `Space` / `J` / `Enter` | `Space` / `J` | `Enter` / `Numpad 1` |
+| **Dash / Tackle / Steal** | `Shift` / `K` | `Left Shift` / `K` | `Right Ctrl` / `Right Shift` / `Numpad 2` |
+| **Switch Pemain (2v2 / 3v3)** | `Q` / `L` | `Q` / `L` | `Numpad 0` / `/` |
+
+- **Utilitas:** `H` (Guide), `R` (Career Records), `M` (Mute SFX/BGM), `Esc` / `P` (Pause), `Space` (Skip Replay).
+- **Practice Sandbox:** `1`–`6` (Toggle Mutator), `0` (Clear Mutator), `F` (Feed Pass Volley), `B` (Reset Ball), `T` (Toggle Defender AI).
+
+---
+
+## Persyaratan & Cara Menjalankan
+
+Pastikan sudah terpasang **Node.js** (disarankan v18+) dan **npm**.
+
+```bash
+# 1. Clone repositori
+git clone <url-repo-anda>
+cd no-out-derby
+
+# 2. Install dependencies
+npm install
+
+# 3. Jalankan development server
+npm run dev
+```
+
+### Skrip Tersedia (`package.json`)
+
+| Perintah | Deskripsi |
+| :--- | :--- |
+| `npm run dev` | Menjalankan server pengembangan Vite dengan HMR. |
+| `npm run build` | Mengecek tipe TypeScript (`tsc --noEmit`) lalu mem-build bundle produksi ke `dist/`. |
+| `npm run preview` | Menjalankan server preview lokal dari hasil build `dist/`. |
+| `npm test` | Menjalankan seluruh unit & integration test sekali jalan dengan Vitest (`vitest run`). |
+| `npm run test:watch` | Menjalankan Vitest dalam mode watch saat pengembangan. |
+
+---
+
+## Struktur Proyek
+
+```text
+no-out-derby/
+├── index.html                  # Canvas container + overlay kontrol sentuh mobile
+├── game.prd                    # Panduan pemain lengkap, aturan, mode & PRD teknis
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+└── src/
+    ├── main.ts                 # Entry point, loop utama, binding UI & Sandbox hotkeys
+    ├── types.ts                # Tipe inti entitas, arena, mutator, kit, stats & event
+    ├── audio/
+    │   └── SoundEngine.ts      # Web Audio synthesizer untuk BGM chiptune & SFX prosedural
+    ├── engine/
+    │   ├── ArenaGeometry.ts    # Segmen dinding oktagon 45°, tiang gawang & anti-tunneling clamp
+    │   ├── ArenaPresets.ts     # Konfigurasi Classic Stadium, Concrete Alley & Rooftop Night
+    │   ├── GameLoop.ts         # Fixed-timestep 60Hz loop + hitstop & slow-motion
+    │   ├── PhysicsEngine.ts    # Sub-stepped 2D physics, dribble/tackle, curve & one-timer
+    │   └── ReplayBuffer.ts     # Ring buffer 180 frame (3 detik) untuk Instant Replay
+    ├── game/
+    │   ├── AIController.ts     # AI Outfield & Kiper untuk 3 tingkat kesulitan (Rookie/Pro/Tarkam)
+    │   ├── CareerRecords.ts    # Penyimpanan statistik karier & preferensi di localStorage
+    │   ├── DerbyCup.ts         # Progression turnamen 3 babak & sistem 6 Perk
+    │   ├── InputManager.ts     # Input keyboard, Gamepad API & virtual touch controls
+    │   ├── MatchState.ts       # State machine pertandingan, Golden Goal, stats & Sandbox logic
+    │   └── MutatorManager.ts   # Penjadwalan & efek 6 Chaos Mutators
+    ├── render/
+    │   ├── Palette.ts          # Palet warna piksel retro
+    │   ├── ParticleSystem.ts   # Partikel debu, jejak tendangan, save/steal sparks & konfeti
+    │   ├── PixelFont.ts        # Bitmap font 5x7 crisp tanpa anti-aliasing
+    │   ├── PixelSprites.ts     # Renderer karakter animasi, bola berputar & ikon mutator
+    │   ├── Renderer.ts         # Renderer lapangan, bayangan 3D bola, callouts & replay
+    │   ├── TeamKits.ts         # 6 preset kit tim beserta logika pencegah tabrakan warna
+    │   └── UIRenderer.ts       # Main Menu, HUD, Pause, Replay, Records, Guide & Derby Cup UI
+    └── tests/
+        ├── ai.test.ts
+        ├── dribble_and_3v3.test.ts
+        ├── gamefeel_and_kits.test.ts
+        ├── match.test.ts
+        ├── mutator.test.ts
+        ├── phase3.test.ts
+        ├── physics.test.ts
+        └── progression_and_sandbox.test.ts
+```
+
+---
+
+## Teknologi
+
+- [TypeScript](https://www.typescriptlang.org/) (`^5.7.2`) — Strict mode (`ES2022`)
+- [Vite](https://vite.dev/) (`^6.0.7`) — Dev server & production bundler
+- [Vitest](https://vitest.dev/) (`^2.1.8`) — Automated testing framework (8 test files, 32 tests)
+- **HTML5 Canvas 2D & Web Audio API** — Nol dependensi runtime eksternal
+# no-out-derby

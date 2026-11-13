@@ -1,0 +1,184 @@
+# Game Guide & PRD — No-Out Derby (Futsal Pantul)
+
+**No-Out Derby (Futsal Pantul)** adalah game futsal arkade retro berkecepatan tinggi di arena tertutup tanpa garis keluar (*out*), tanpa pelanggaran (*foul*), dan tanpa henti. Bola memantul di dinding dan sudut 45° seperti kombinasi futsal dan pinball, dilengkapi mode *Dribble + Tackle*, *Derby Cup*, *Chaos Mutators*, *One-Timer Volley*, serta mode latihan bebas (*Practice Sandbox*).
+
+---
+
+## 1. Peraturan Inti Permainan
+
+1. **No-Out & No-Foul (Tanpa Garis Keluar & Tanpa Pelanggaran)**
+   - Lapangan berbentuk oktagon tertutup dengan sudut miring 45° (*chamfered corners*).
+   - Tidak ada lemparan ke dalam (*throw-in*), sepak pojok (*corner*), atau tendangan gawang mati—bola selalu hidup memantul kembali ke tengah arena.
+   - Tidak ada wasit atau pelanggaran kartu saat menjegal (*dash-tackle*) lawan.
+2. **Kickoff & Durasi Pertandingan**
+   - Pilihan durasi standar: **60 detik**, **90 detik** (default), atau **120 detik** (kecuali mode *Practice Sandbox* yang bebas batas waktu).
+   - Setiap laga dan pasca-gol dimulai dari titik tengah (*Kick-Off*) setelah hitung mundur singkat.
+3. **Skor & Gol**
+   - Tim **A** menyerang ke gawang **kanan**, Tim **B** menyerang ke gawang **kiri**.
+   - Gol sah tercipta jika bola melewati garis gawang di antara kedua tiang (`goalTopY` – `goalBottomY`).
+4. **Golden Goal (Perpanjangan Waktu Otomatis)**
+   - Jika waktu reguler habis (`00:00`) dan skor kedua tim **imbang**, pertandingan otomatis berlanjut ke babak **GOLDEN GOAL**.
+   - Mutator aktif dibersihkan saat Golden Goal dimulai, dan tim yang mencetak gol pertama berikutnya langsung menang!
+5. **15 Detik Terakhir (Final Stretch)**
+   - Memasuki 15 detik terakhir (atau saat Golden Goal), timer HUD berkedip dan tempo musik BGM meningkat otomatis.
+
+---
+
+## 2. Daftar Lengkap Mode Permainan
+
+Pemain dapat mengganti mode pada baris **MODE** di Main Menu:
+
+| Kode Mode di Menu | Format Tim | Kiper AI? | Pemain Manusia | Keterangan |
+| :--- | :--- | :---: | :---: | :--- |
+| **`1V1 VS AI`** | 1 Outfield + 1 GK vs 1 Outfield + 1 GK | Ya | P1 (Tim A) | Duel klasik 1 lawan 1 dengan dukungan kiper otomatis masing-masing tim. |
+| **`2V2 VS AI`** | 2 Outfield vs 2 Outfield | Tidak | P1 (Tim A) | 2 lawan 2 cepat tanpa kiper; P1 dapat bertukar kendali ke rekan setim (`Q`). |
+| **`3V3 (GK+2) VS AI`** | 2 Outfield + 1 GK vs 2 Outfield + 1 GK | Ya | P1 (Tim A) | Format futsal 3v3: 1 Kiper AI + 2 pemain lapangan per tim! |
+| **`DERBY CUP 1V1`** | Turnamen 3 Babak (1v1 + GK) | Ya | P1 (Tim A) | Kalahkan 3 lawan beruntun dengan pemilihan *Perk* antar babak. |
+| **`DERBY CUP 2V2`** | Turnamen 3 Babak (2v2, tanpa GK) | Tidak | P1 (Tim A) | Format turnamen 3 babak untuk 2v2 vs AI. |
+| **`DERBY CUP 3V3`** | Turnamen 3 Babak (3v3: GK+2) | Ya | P1 (Tim A) | Format turnamen 3 babak dengan tim penuh 3v3 (Kiper + 2 Outfield). |
+| **`2P 1V1 VERSUS`** | 1 Outfield + 1 GK vs 1 Outfield + 1 GK | Ya | P1 (Tim A) vs P2 (Tim B) | Duel lokal 2 pemain di 1 keyboard / gamepad, masing-masing dibantu Kiper AI. |
+| **`2P 2V2 VERSUS`** | 2 Outfield vs 2 Outfield | Tidak | P1 (Tim A) vs P2 (Tim B) | P1 & P2 sama-sama memiliki 1 rekan AI dan bisa ganti pemain (`Q` / `Numpad 0`). |
+| **`2P 3V3 VERSUS`** | 2 Outfield + 1 GK vs 2 Outfield + 1 GK | Ya | P1 (Tim A) vs P2 (Tim B) | Pertarungan penuh 3v3 lokal (masing-masing 2 Outfield + 1 Kiper AI). |
+| **`2P 2V2 CO-OP`** | 2 Outfield vs 2 Outfield (vs AI) | Tidak | P1 & P2 di Tim A | P1 dan P2 bermain bersama dalam satu tim melawan 2 AI. |
+| **`2P 3V3 CO-OP`** | 2 Outfield + 1 GK vs 2 Outfield + 1 GK (vs AI) | Ya | P1 & P2 di Tim A | P1 dan P2 mengontrol kedua pemain lapangan Tim A + dibantu Kiper AI. |
+| **`PRACTICE SANDBOX`** | 1 Outfield + GK vs GK (+ Opsional Bek) | Ya | P1 (Tim A) | Mode latihan bebas tanpa timer habis, dengan tombol pemicu mutator & umpan volley instan. |
+
+### Cara Kerja Pergantian Pemain (Mode 2 Outfield: 2v2 & 3v3)
+- Tekan tombol **Switch** (`Q` / `L` untuk P1, atau `Numpad 0` / `/` untuk P2 di mode 2P Versus) kapan saja untuk langsung berpindah ke pemain lapangan rekan setim.
+- **Auto-Switch Pintar**: Jika tidak sedang *charging*, tidak sedang *dash*, dan tidak sedang membawa bola, kendali otomatis berpindah saat bola berada di belakang pemain aktif dan rekan setim jauh lebih dekat ke bola.
+
+---
+
+## 3. Gaya Kontrol (`BALL CTRL`) & Daftar Tombol
+
+Di Main Menu baris **`BALL CTRL`**, tersedia dua gaya bermain yang sangat memengaruhi kontrol bola:
+
+1. **`DRIBBLE + TACKLE` (Default — Direkomendasikan)**
+   - Menyentuh bola bebas membuat bola **menempel di kaki pemain** (*carry pocket* di depan arah hadap, kecepatan lari ~94%) sehingga jauh lebih mudah diarahkan, dibawa berbelok, dan diumpan.
+   - **Tackle / Steal**: Lakukan *Dash* ke arah lawan yang sedang menggiring bola untuk **membuatnya stun (0.36 detik) sekaligus mencuri penguasaan bola** secara langsung!
+   - **Kick-Poke**: Menekan/mengayun *Kick* dalam jarak jangkau lawan yang sedang menggiring bola juga dapat menyapu bola lepas dari kakinya.
+2. **`CLASSIC (BOUNCE)`**
+   - Bola tidak menempel di kaki—setiap sentuhan memantulkan bola secara fisika arkade (*pinball dribble* mengikuti momentum lari). Cocok bagi yang suka kontrol pantul murni penuh risiko.
+
+### Kontrol Keyboard, Gamepad & Touch
+
+| Aksi | Player 1 (Mode Solo / 1P) | Player 1 (Mode 2P) | Player 2 (Mode 2P) | Gamepad (Per Slot) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Gerak (8 Arah)** | `W A S D` atau `Panah` | `W A S D` | `Panah Atas/Bawah/Kiri/Kanan` | Stick Kiri / D-Pad |
+| **Tendang / Tahan Power** | `Space`, `J`, atau `Enter` | `Space` atau `J` | `Enter` atau `Numpad 1` | Tombol A / X |
+| **Dash / Tackle / Steal** | `Left/Right Shift` atau `K` | `Left Shift` atau `K` | `Right Ctrl`, `Right Shift`, atau `Numpad 2` | Tombol B / RB |
+| **Switch Pemain (2v2/3v3)** | `Q` atau `L` | `Q` atau `L` | `Numpad 0` atau `/` | Tombol Y / LB |
+
+### Kontrol Menu, Utilitas & Practice Sandbox
+
+| Tombol | Fungsi | Keterangan |
+| :--- | :--- | :--- |
+| `Panah / WASD` | Navigasi & Ubah Pengaturan | Atas/Bawah pilih baris menu; Kiri/Kanan ubah nilai opsi. |
+| `Enter` / `Space` / Klik | Konfirmasi / Kick Off | Memulai pertandingan atau membuka tombol aktif. |
+| `H` | Buka **How To Play (Guide)** | Tersedia di Main Menu maupun saat Pause. |
+| `R` | Buka **Career Records** | Tersedia di Main Menu untuk melihat statistik & trofi. |
+| `M` | **Mute / Unmute SFX & BGM** | Dapat ditekan kapan saja (juga bisa diklik di kanan atas HUD). |
+| `Esc` / `P` | **Pause / Resume** | Menjeda laga; di layar *Instant Replay* tombol `Space/Enter/Esc` melakukan *Skip Replay*. |
+| `1` – `6` *(Sandbox Only)* | **Toggle Mutator Instan** | `1`: Giant Ball, `2`: Slippery Pitch, `3`: Pinball Mode, `4`: Hot Potato, `5`: Wide Goals, `6`: Multi-Ball. Tekan angka yang sama lagi untuk mematikan. |
+| `0` *(Sandbox Only)* | **Clear Mutator** | Mematikan mutator yang aktif dan mengembalikan fisika normal. |
+| `F` *(Sandbox Only)* | **Feed Pass (Volley)** | Meluncurkan umpan silang cepat ke arah P1 untuk latihan tembakan *One-Timer Volley*. |
+| `B` *(Sandbox Only)* | **Reset Ball** | Mengembalikan bola ke titik tengah lapangan. |
+| `T` *(Sandbox Only)* | **Toggle Defender AI** | Menyalakan atau mematikan 1 pemain bertahan AI di Tim B untuk latihan *dribble* & *steal*. |
+
+> **Dukungan Layar Sentuh (Mobile / Tablet):** Virtual joystick kiri + tombol **KICK**, **DASH**, dan **SW** muncul otomatis saat sentuhan terdeteksi.
+
+---
+
+## 4. Mekanisme Permainan & Teknik Pro
+
+1. **Power Shot Charge (Tahan Tombol Kick)**
+   - Menahan tombol Kick mengisi indikator daya hingga maksimum dalam **0.60 detik**.
+   - Saat mengisi daya (*charging*), kecepatan gerak turun menjadi **60%**, lalu saat dilepas memberi ledakan kecepatan bola lebih tinggi dan lontaran vertikal (*loft*).
+2. **Banana Curve Shot (Tendangan Pisang)**
+   - Saat melepas tombol Kick sambil **bergerak menyamping/tegak lurus** dari arah tendangan, bola mendapat rotasi samping (**spin** hingga ±2.2) yang melengkungkan lintasan di udara (gaya Magnus)!
+   - Sangat ampuh untuk mengecoh Kiper AI dari sudut sempit.
+3. **One-Timer / Volley Shot**
+   - Menekan/mengayun Kick tepat saat **bola lepas melaju cepat ke arahmu** (umpan rekan berkecepatan `>= 115 px/s`, atau pantulan dinding/kiper berkecepatan `>= 125 px/s` ke arah balik) otomatis memicu **ONE-TIMER!**
+   - Menghasilkan kecepatan ekstra (`255–410+ px/s`), menaikkan batas kecepatan maksimum sementara (`0.48s`), memunculkan jejak partikel **cyan-emas**, efek *hitstop* singkat, dan label highlight `ONE-TIMER!`.
+4. **Dash, Tackle & Ball Steal**
+   - *Dash* mendorong pemain cepat selama `0.17s` dengan *cooldown* dasar `1.2s`.
+   - Menabrak lawan saat sedang *Dash* menyebabkan lawan **stun `0.36s`** dan terpental. Pada mode `Dribble + Tackle`, pembawa bola langsung kehilangan bola (otomatis pindah ke penjegel jika tangannya/kakinya kosong), memunculkan callout **`STEAL!`** dan percikan emas.
+   - Menabrak bola lepas saat *Dash* melakukan **sliding clear / poke** tajam (`~232 px/s`).
+5. **Keeper & Goal-Box Save**
+   - Kiper AI otomatis menjaga garis gawang, memprediksi pantulan tembakan, serta menghalau bola ke arah sayap.
+   - Jika tembakan lawan yang cukup keras berhasil diblok Kiper (`>= 115 px/s`) atau diblok pemain bertahan di area kotak gawang (`>= 150 px/s`), muncul callout **`GREAT SAVE!`** dan statistik Save tercatat.
+6. **Floating Callouts, Highlight Goal & Instant Replay**
+   - Momen penting memicu teks piksel mengambang di lapangan: **`ONE-TIMER!`**, **`GREAT SAVE!`**, **`STEAL!`**, **`CLANG!`** (kena tiang), serta tag gol **`ONE-TIMER!`**, **`BANK SHOT!`** (gol dalam `< 1.35s` setelah pantulan dinding/tiang), **`ROCKET!`** (power `>= 0.78` atau kecepatan `>= 270 px/s`), dan **`TOP BIN!`** (sudut atas/bawah gawang).
+   - Gol spektakuler di laga reguler/cup memutar ulang **3 detik terakhir (180 frame pada 60Hz)** dengan bingkai siaran retro `REC / REPLAY` yang dapat di-skip dengan `Space` / `Enter` / klik.
+
+---
+
+## 5. Variasi Arena
+
+Dapat dipilih di Main Menu (baris **ARENA**) atau dilalui berurutan dalam turnamen **Derby Cup**:
+
+1. **`CLASSIC STADIUM`**
+   - Ukuran standar (`36..444 × 44..248`), lebar gawang `58 px`, restitusi dinding seimbang (`0.89`), tanpa angin.
+2. **`CONCRETE ALLEY`**
+   - Lapangan lebih sempit (`52..428 × 52..240`), sudut lebih tajam (`24 px`), gawang sedikit lebih kecil (`52 px`), dan pantulan dinding beton sangat keras (**restitusi `0.96`**) untuk permainan *bank shot* super cepat.
+3. **`ROOFTOP NIGHT`**
+   - Lapangan atap gedung malam (`40..440 × 46..246`, restitusi `0.90`) dengan **angin samping dinamis** (`WIND V` / `^` di HUD kiri atas + partikel angin) yang perlahan membelokkan laju bola.
+
+---
+
+## 6. Chaos Mutators (6 Efek Acak)
+
+Jika opsi **`MUTATORS`** diset **`ON (CHAOS)`**, mutator acak aktif otomatis selama **18 detik** tiap interval pertandingan (detik ke-`20 & 40` untuk laga 60s; detik ke-`30 & 60` untuk 90s; detik ke-`30, 60, & 90` untuk 120s). Di mode *Practice Sandbox*, seluruh mutator dapat dipanggil manual kapan saja via tombol `1`–`6`.
+
+| Hotkey Sandbox | Mutator | Efek Gameplay |
+| :---: | :--- | :--- |
+| `1` | **`GIANT BALL!`** | Ukuran bola **2x lebih besar** dan massa **3.5x lebih berat**; menghasilkan efek dorong kuat saat tabrakan. |
+| `2` | **`SLIPPERY PITCH!`** | Lantai es dengan gesekan sangat rendah (`ballFriction 0.9965`, `playerFriction 0.96`), pemain meluncur jauh. |
+| `3` | **`PINBALL MODE!`** | Restitusi dinding naik menjadi **114% (`1.14`)** dan batas kecepatan bola maksimum naik hingga `445 px/s`. |
+| `4` | **`HOT POTATO!`** | Jika bola tidak tersentuh pemain selama **6 detik**, bola meledak (`radius 98 px`), melempar & membuat *stun* pemain sekitar, lalu melontar acak. |
+| `5` | **`WIDE GOALS!`** | Mulut kedua gawang melebar **1.6x** lipat dari ukuran normal. |
+| `6` | **`DOUBLE TROUBLE!`** | Bola kedua muncul di lapangan bersamaan sehingga serangan dan pertahanan berlangsung ganda. |
+
+---
+
+## 7. Derby Cup (Turnamen 3 Babak) & Daftar Perk
+
+Mode **`DERBY CUP 1V1`**, **`DERBY CUP 2V2`**, dan **`DERBY CUP 3V3`** mempertemukan Tim A melawan tangga tantangan 3 babak berturut-turut:
+
+1. **Quarter Final** — *Village FC* (`Rookie` AI) di **Classic Stadium**
+2. **Semi Final** — *Alley Sharks* (`Pro` AI) di **Concrete Alley**
+3. **Grand Final** — *Skyline Legends* (`Tarkam Legend` AI) di **Rooftop Night**
+
+Setiap menang di Quarter Final dan Semi Final, pemain memilih **1 dari 3 Perk acak** yang bertahan permanen hingga Grand Final selesai:
+
+| Nama Perk | Efek Permanen (Tim A) |
+| :--- | :--- |
+| **`TURBO BOOTS`** | Kecepatan lari maksimal **+15%** (dan mempercepat Dash). |
+| **`IRON LEG`** | Kekuatan tendangan **+18%**. |
+| **`QUICK DASH`** | Waktu tunggu (*cooldown*) Dash **-25%** lebih cepat. |
+| **`BANANA CURVE`** | Kekuatan efek putaran / lengkungan bola **+65%**. |
+| **`STEEL BODY`** | Durasi terkena *stun* saat di-tackle **-50%**. |
+| **`MAGNET TOUCH`** | Jangkauan area tendang (*kick reach*) bertambah **+3 px**. |
+
+---
+
+## 8. Kustomisasi Tim, Career Records & QoL
+
+1. **6 Pilihan Kit Jersey (`TEAM A KIT` & `TEAM B KIT`)**
+   - Pilihan preset kontras tinggi: **Garuda Red (`GRD`)**, **Cyber Blue (`CYB`)**, **Tarkam Gold (`TRK`)**, **Shadow Violet (`SHD`)**, **Lime Street (`LIM`)**, dan **Sunset Flare (`SUN`)**.
+   - Pemilih kit otomatis melompati warna yang sedang dipakai tim lawan agar visibilitas di lapangan selalu jelas. Warna jersey tercermin pada sprite pemain, HUD skor, konfeti gol, dan Instant Replay.
+2. **Career Records (`localStorage`)**
+   - Tekan **`[R]`** di Main Menu untuk melihat rekor sepanjang masa Tim A / Player 1: **Matches Played, Wins/Losses, Win Streak & Best Streak, Total Goals, Best 1-Match Goals, Derby Cup Trophies, Bank Shots, One-Timer Goals, Saves/Blocks, Tackle Steals, dan Top Ball Speed (`PX/S`)**.
+   - Laga di mode **Practice Sandbox** sengaja tidak dihitung ke statistik kompetitif agar rekor karier tetap akurat. Tersedia tombol **Reset Records** dengan pengaman konfirmasi dua kali klik.
+3. **Auto-Save Preferences & In-Game Guide**
+   - Terakhir kali mode, kontrol (`DRIBBLE` / `CLASSIC`), arena, warna kit, tingkat AI, pengaturan mutator, durasi, serta status mute (`[M]`) otomatis disimpan di `localStorage`.
+   - Tekan **`[H]`** di Main Menu atau saat **Pause** untuk membaca ringkasan aturan, kontrol, dan arena langsung dari dalam game.
+
+---
+
+## 9. Tips Cepat untuk Pemula
+
+1. **Mulai dengan `DRIBBLE + TACKLE`**: Bola lebih jinak menempel di kaki untuk belajar menggiring dan mencari sudut tembak sebelum beralih ke mode `CLASSIC`.
+2. **Gunakan Dinding sebagai Rekan Umpan**: Di sudut 45°, tembakan menyilang sering memantul balik ke depan gawang lawan—saat bola mantul cepat ke arahmu, tekan `Space` untuk melepaskan **One-Timer** yang sulit dibendung kiper!
+3. **Latih Timing di `PRACTICE SANDBOX`**: Pilih `PRACTICE SANDBOX`, lalu tekan **`F`** untuk menerima umpan silang dan **`Space`** saat bola tiba, atau tekan **`1`–`6`** untuk langsung mencoba semua efek Chaos Mutator.
+4. **Belok Saat Menendang Kiper**: Di duel melawan AI level *Pro* atau *Tarkam Legend*, kiper sangat jago menutup tembakan lurus—tahan `Space` sambil bergerak ke atas/bawah tepat sebelum melepas tombol untuk melengkungkan bola (*Banana Curve*) ke pojok gawang!
