@@ -27,10 +27,11 @@ Game **2D Pixel Arcade Futsal** berkecepatan tinggi di arena oktagon tertutup �
 - **Kustomisasi Kit Klub & Progresi Lokal:**
   - 6 preset jersey kontras tinggi (`Garuda Red`, `Cyber Blue`, `Tarkam Gold`, `Shadow Violet`, `Lime Street`, `Sunset Flare`) yang otomatis mencegah tabrakan warna antar tim.
   - **Career Records** & penyimpanan preferensi otomatis di `localStorage`, dilengkapi layar **How To Play (`[H]`)** dan **Records (`[R]`)** langsung di dalam game.
-- **Dukungan Multi-Input & Mode Tampilan Mobile (`[V] PAD: AUTO / MOBILE / PC`):**
+- **Dukungan Multi-Input & Mode Tampilan Mobile (`[V] PAD: AUTO / MOBILE / PC` & `[F] FULLSCREEN`):**
   - **Keyboard (1P & 2P lokal)**, **Gamepad API**, dan **Mobile Handheld View** siap main online di smartphone maupun testing di desktop (`[V]` di Main Menu / `MOBILE PAD` di Pause).
-  - **Adaptif Portrait & Landscape:** Di orientasi Portrait, lapangan diposisikan di bagian atas sementara bagian bawah menjadi dek kontroler khusus (zero overlap!); di Landscape kontrol melayang transparan mengikuti *safe-area*.
-  - **Joystick & Tombol Khusus Mobile:** Analog Joystick 360°, tombol **`KICK`** (dengan indikator pengisian daya langsung), **`TACKLE` / `DASH`** dinamis, **`SWITCH`** (2v2/3v3), tombol utilitas (`PAUSE`, `SFX`, `VIEW`, `SKIP REPLAY >>`), serta bar Sandbox instan (`FEED`, `BALL`, `AI BEK`, `M1`–`M6`, `CLR`).
+  - **Fullscreen Web & Mobile Edge-to-Edge (`[F]`):** Tombol **Fullscreen** tersedia langsung di **Main Menu** (bar sentuh bawah `[ ] FULLSCREEN MODE` + pill kanan atas `[F] FULLSCREEN`), **Pause Menu**, serta **Utility Bar (`[ ] FULL`)** saat bertanding. Mendukung native `Fullscreen API` + kunci orientasi Landscape otomatis di mobile, *fallback immersive viewport* (iOS Safari), penskalaan 100% *edge-to-edge*, serta dukungan PWA `manifest.webmanifest` (`display: fullscreen`).
+  - **Adaptif Portrait & Landscape:** Di orientasi Portrait, menu & lapangan mengisi 100% lebar atas layar sementara saat bertanding bagian bawah menjadi dek kontroler khusus (zero overlap!); di Landscape kontrol melayang transparan mengikuti *safe-area*.
+  - **Joystick & Tombol Khusus Mobile:** Analog Joystick 360°, tombol **`KICK`** (dengan indikator pengisian daya langsung), **`TACKLE` / `DASH`** dinamis, **`SWITCH`** (2v2/3v3), tombol utilitas (`PAUSE`, `SFX`, `VIEW`, `[ ] FULL`, `SKIP REPLAY >>`), serta bar Sandbox instan (`FEED`, `BALL`, `AI BEK`, `M1`–`M6`, `CLR`).
 
 ---
 
@@ -43,7 +44,7 @@ Game **2D Pixel Arcade Futsal** berkecepatan tinggi di arena oktagon tertutup �
 | **Dash / Tackle / Steal** | `Shift` / `K` | `Left Shift` / `K` | `Right Ctrl` / `Right Shift` / `Numpad 2` |
 | **Switch Pemain (2v2 / 3v3)** | `Q` / `L` | `Q` / `L` | `Numpad 0` / `/` |
 
-- **Utilitas:** `V` (Switch View: `AUTO`/`MOBILE`/`PC`), `H` (Guide), `R` (Career Records), `M` (Mute SFX/BGM), `Esc` / `P` (Pause), `Space` (Skip Replay).
+- **Utilitas:** `F` (Toggle Fullscreen di Menu/Pause/Full Time), `V` (Switch View: `AUTO`/`MOBILE`/`PC`), `H` (Guide), `R` (Career Records), `M` (Mute SFX/BGM), `Esc` / `P` (Pause), `Space` (Skip Replay).
 - **Practice Sandbox:** `1`–`6` (Toggle Mutator), `0` (Clear Mutator), `F` (Feed Pass Volley), `B` (Reset Ball), `T` (Toggle Defender AI).
 
 ---
@@ -91,7 +92,9 @@ Repositori sudah dilengkapi [`vercel.json`](./vercel.json) (preset Vite -> build
 
 ```text
 no-out-derby/
-├── index.html                  # Canvas container + Mobile Joystick & Arcade Deck UI
+├── index.html                  # Canvas container, Mobile Deck UI & Menu Fullscreen Bar
+├── public/
+│   └── manifest.webmanifest    # Konfigurasi PWA fullscreen untuk browser mobile
 ├── game.prd                    # Panduan pemain lengkap, aturan, mode & PRD teknis
 ├── package.json
 ├── tsconfig.json
@@ -112,6 +115,7 @@ no-out-derby/
     │   ├── AIController.ts     # AI Outfield & Kiper untuk 3 tingkat kesulitan (Rookie/Pro/Tarkam)
     │   ├── CareerRecords.ts    # Penyimpanan statistik karier & preferensi di localStorage
     │   ├── DerbyCup.ts         # Progression turnamen 3 babak & sistem 6 Perk
+    │   ├── Fullscreen.ts       # Helper Fullscreen API, lock landscape & fallback iOS viewport
     │   ├── InputManager.ts     # Input keyboard, Gamepad API & Multi-Touch / Pointer Joystick
     │   ├── MatchState.ts       # State machine pertandingan, Golden Goal, stats & Sandbox logic
     │   ├── MobileLayout.ts     # Deteksi mode mobile, ukuran canvas Portrait/Landscape & HUD state

@@ -18,6 +18,7 @@ export interface CanvasDisplayMetrics {
 
 export interface TouchHudVisibility {
   showOverlay: boolean;
+  showMenuBar: boolean;
   showGameplayControls: boolean;
   showSwitchButton: boolean;
   showReplaySkip: boolean;
@@ -78,9 +79,11 @@ export function computeCanvasDisplaySize(
   const portraitDeck = mobileActive && orientation === 'portrait';
 
   if (portraitDeck) {
-    // Upper screen holds the 16:9 pitch/menu; bottom deck stays clear of the field
-    const maxW = Math.max(220, vw - 12);
-    const maxH = inMatchPhase ? Math.max(124, Math.floor(vh * 0.44)) : Math.max(150, Math.floor(vh * 0.62));
+    // Upper screen fills 100% width; during a match, reserve lower deck for joystick/buttons
+    const maxW = vw;
+    const maxH = inMatchPhase
+      ? Math.max(124, Math.floor(vh * 0.45))
+      : Math.max(150, Math.floor(vh * 0.78));
     const scale = Math.min(maxW / NATIVE_WIDTH, maxH / NATIVE_HEIGHT);
     return {
       width: Math.floor(NATIVE_WIDTH * scale),
@@ -90,12 +93,8 @@ export function computeCanvasDisplaySize(
     };
   }
 
-  // Landscape mobile reserves subtle side breathing room when playing so edge pads feel airy
-  const padX = mobileActive && inMatchPhase ? Math.min(28, Math.floor(vw * 0.03)) : 0;
-  const padY = mobileActive && inMatchPhase ? Math.min(10, Math.floor(vh * 0.02)) : 0;
-  const availW = Math.max(240, vw - padX);
-  const availH = Math.max(160, vh - padY);
-  const fitScale = Math.min(availW / NATIVE_WIDTH, availH / NATIVE_HEIGHT);
+  // Landscape (mobile & fullscreen) expands edge-to-edge preserving crisp 16:9 ratio
+  const fitScale = Math.min(vw / NATIVE_WIDTH, vh / NATIVE_HEIGHT);
   const intScale = Math.floor(fitScale);
   const useScale =
     !mobileActive && intScale >= 1 && intScale / fitScale >= 0.72 ? intScale : fitScale;
@@ -128,6 +127,7 @@ export function getTouchHudVisibility(
   if (!mobileActive || !isGameplayPhase) {
     return {
       showOverlay: false,
+      showMenuBar: mobileActive && !isGameplayPhase,
       showGameplayControls: false,
       showSwitchButton: false,
       showReplaySkip: false,
@@ -138,6 +138,7 @@ export function getTouchHudVisibility(
   const isReplay = phase === 'REPLAY';
   return {
     showOverlay: true,
+    showMenuBar: false,
     showGameplayControls: !isReplay,
     showSwitchButton: !isReplay && canSwitch,
     showReplaySkip: isReplay,

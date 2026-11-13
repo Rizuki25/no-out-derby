@@ -13,6 +13,7 @@ import {
 import { ARENA_LIST, PITCH_SIZE_LIST } from './engine/ArenaPresets.ts';
 import { GameLoop } from './engine/GameLoop.ts';
 import { CareerRecordsStore } from './game/CareerRecords.ts';
+import { isFullscreenActive, toggleAppFullscreen } from './game/Fullscreen.ts';
 import { MatchState } from './game/MatchState.ts';
 import { InputManager } from './game/InputManager.ts';
 import {
@@ -120,9 +121,14 @@ function initApp(): void {
       portraitDeck: metrics.portraitDeck,
       portraitDeckTopPx:
         metrics.portraitDeck && visibility.showOverlay ? metrics.height + 16 : null,
+      isFullscreen: isFullscreenActive(document),
+      isPortrait: metrics.orientation === 'portrait',
     });
   };
   window.addEventListener('resize', syncMobileLayoutAndHud);
+  window.addEventListener('orientationchange', syncMobileLayoutAndHud);
+  document.addEventListener('fullscreenchange', syncMobileLayoutAndHud);
+  document.addEventListener('webkitfullscreenchange', syncMobileLayoutAndHud);
   syncMobileLayoutAndHud();
 
   const handleEvents = (events: GameEvent[]) => {
@@ -233,6 +239,15 @@ function initApp(): void {
     updateConfig({ displayMode: next });
     match.config.displayMode = next;
     input.setDisplayMode(next);
+    syncMobileLayoutAndHud();
+  };
+
+  const toggleFullscreenAction = () => {
+    sound.unlock();
+    sound.playMenuBlip(false);
+    void toggleAppFullscreen(input.isMobileLayoutActive()).then(() => {
+      syncMobileLayoutAndHud();
+    });
     syncMobileLayoutAndHud();
   };
 
@@ -356,6 +371,10 @@ function initApp(): void {
         cycleViewMode();
         return;
       }
+      if (input.wasKeyJustPressed('KeyF')) {
+        toggleFullscreenAction();
+        return;
+      }
 
       if (nav.up) {
         sound.playMenuBlip(false);
@@ -426,29 +445,39 @@ function initApp(): void {
         openGuide();
         return;
       }
+      if (input.wasKeyJustPressed('KeyF')) {
+        toggleFullscreenAction();
+        return;
+      }
       if (nav.pause || nav.back) {
         togglePause();
         return;
       }
       if (nav.up) {
         sound.playMenuBlip(false);
-        ui.pauseRow = (ui.pauseRow + 4) % 5;
+        ui.pauseRow = (ui.pauseRow + 5) % 6;
       } else if (nav.down) {
         sound.playMenuBlip(false);
-        ui.pauseRow = (ui.pauseRow + 1) % 5;
-      } else if ((nav.left || nav.right) && ui.pauseRow === 2) {
-        cycleViewMode();
+        ui.pauseRow = (ui.pauseRow + 1) % 6;
+      } else if (nav.left || nav.right) {
+        if (ui.pauseRow === 2) toggleFullscreenAction();
+        else if (ui.pauseRow === 3) cycleViewMode();
       } else if (nav.confirm) {
         if (ui.pauseRow === 0) togglePause();
         else if (ui.pauseRow === 1) rematch();
-        else if (ui.pauseRow === 2) cycleViewMode();
-        else if (ui.pauseRow === 3) openGuide();
+        else if (ui.pauseRow === 2) toggleFullscreenAction();
+        else if (ui.pauseRow === 3) cycleViewMode();
+        else if (ui.pauseRow === 4) openGuide();
         else quitToMenu();
       }
       return;
     }
 
     if (match.phase === 'FULL_TIME') {
+      if (input.wasKeyJustPressed('KeyF')) {
+        toggleFullscreenAction();
+        return;
+      }
       if (nav.up || nav.down || nav.left || nav.right) {
         sound.playMenuBlip(false);
         ui.resultRow = ui.resultRow === 0 ? 1 : 0;
@@ -507,6 +536,7 @@ function initApp(): void {
     onPause: togglePause,
     onToggleMute: toggleMute,
     onCycleView: cycleViewMode,
+    onToggleFullscreen: toggleFullscreenAction,
     onSkipReplay: skipReplay,
     onSandboxAction: triggerSandboxCommand,
   });
@@ -533,7 +563,11 @@ function initApp(): void {
     }
   };
 
-  canvas.addEventListener('pointerdown', (e) => {
+  canvas.addEventListener('pointerdown', () => {
+    sound.unlock();
+  });
+
+  canvas.addEventListener('click', (e) => {
     sound.unlock();
     const rect = canvas.getBoundingClientRect();
     const cx = ((e.clientX - rect.left) / rect.width) * NATIVE_WIDTH;
@@ -607,6 +641,7 @@ function initApp(): void {
         onChangeGuidePage: changeGuidePage,
         onResetRecords: resetRecordsAction,
         onCycleDisplayMode: cycleViewMode,
+        onToggleFullscreen: toggleFullscreenAction,
       });
     },
     (rawDt) => {

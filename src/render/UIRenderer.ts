@@ -17,6 +17,7 @@ import {
 import { CareerRecordsData } from '../game/CareerRecords.ts';
 import { PERK_CATALOG } from '../game/DerbyCup.ts';
 import { MatchState } from '../game/MatchState.ts';
+import { isFullscreenActive } from '../game/Fullscreen.ts';
 import { getDisplayModeLabel } from '../game/MobileLayout.ts';
 import { PALETTE } from './Palette.ts';
 import { drawPixelText } from './PixelFont.ts';
@@ -71,11 +72,12 @@ export interface UICallbacks {
   onChangeGuidePage: (page: number) => void;
   onResetRecords: () => void;
   onCycleDisplayMode: () => void;
+  onToggleFullscreen: () => void;
 }
 
 export class UIRenderer {
   public menuRow = 0; // 0..9
-  public pauseRow = 0; // 0..4
+  public pauseRow = 0; // 0..5
   public resultRow = 0; // 0..1
   public perkIndex = 0; // 0..2
   public championRow = 0; // 0..1
@@ -487,6 +489,31 @@ export class UIRenderer {
       action: callbacks.onCycleDisplayMode,
     });
 
+    // Fullscreen toggle Pill under Mute (clickable & [F] hotkey)
+    const fsActive = isFullscreenActive(typeof document !== 'undefined' ? document : null);
+    const fsLabel = fsActive ? '[F] EXIT FULL' : '[F] FULLSCREEN';
+    ctx.fillStyle = fsActive ? '#163d2d' : PALETTE.deepNavy;
+    ctx.fillRect(NATIVE_WIDTH - 96, 20, 90, 13);
+    ctx.strokeStyle = fsActive ? '#39d98a' : PALETTE.iceCyan;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(NATIVE_WIDTH - 95.5, 20.5, 89, 12);
+    drawPixelText(
+      ctx,
+      fsLabel,
+      NATIVE_WIDTH - 51,
+      23,
+      fsActive ? '#7dffba' : PALETTE.iceCyan,
+      1,
+      'center'
+    );
+    this.clickZones.push({
+      x: NATIVE_WIDTH - 96,
+      y: 20,
+      w: 90,
+      h: 13,
+      action: callbacks.onToggleFullscreen,
+    });
+
     const panelX = 76;
     const panelW = 328;
     const panelY = 41;
@@ -735,9 +762,9 @@ export class UIRenderer {
     ctx.fillRect(0, 0, NATIVE_WIDTH, NATIVE_HEIGHT);
 
     const bx = 136;
-    const by = 48;
+    const by = 38;
     const bw = 208;
-    const bh = 172;
+    const bh = 192;
     ctx.fillStyle = PALETTE.deepNavy;
     ctx.fillRect(bx, by, bw, bh);
     ctx.strokeStyle = PALETTE.gold;
@@ -747,16 +774,22 @@ export class UIRenderer {
     drawPixelText(ctx, 'PAUSED', NATIVE_WIDTH * 0.5, by + 13, PALETTE.gold, 2, 'center');
 
     const padLabel = getDisplayModeLabel(match.config.displayMode ?? 'auto');
+    const fsActive = isFullscreenActive(typeof document !== 'undefined' ? document : null);
     const items = [
       { id: 0, label: 'RESUME MATCH', action: callbacks.onResume },
       { id: 1, label: 'RESTART MATCH', action: callbacks.onRematch },
-      { id: 2, label: `MOBILE PAD: ${padLabel}`, action: callbacks.onCycleDisplayMode },
-      { id: 3, label: 'HOW TO PLAY [H]', action: callbacks.onOpenGuide },
-      { id: 4, label: 'MAIN MENU', action: callbacks.onQuitToMenu },
+      {
+        id: 2,
+        label: fsActive ? 'FULLSCREEN: ON [F]' : 'FULLSCREEN: OFF [F]',
+        action: callbacks.onToggleFullscreen,
+      },
+      { id: 3, label: `MOBILE PAD: ${padLabel}`, action: callbacks.onCycleDisplayMode },
+      { id: 4, label: 'HOW TO PLAY [H]', action: callbacks.onOpenGuide },
+      { id: 5, label: 'MAIN MENU', action: callbacks.onQuitToMenu },
     ];
 
     for (const item of items) {
-      const ry = by + 40 + item.id * 24;
+      const ry = by + 38 + item.id * 23;
       const sel = this.pauseRow === item.id;
       ctx.fillStyle = sel ? PALETTE.teamAPrimary : PALETTE.slateDark;
       ctx.fillRect(bx + 18, ry, bw - 36, 18);
@@ -1211,12 +1244,13 @@ export class UIRenderer {
         { text: '- POWER & CURVE: HOLD KICK (SPACE/J), STEER SIDEWAYS TO BEND!', color: PALETTE.turfLine },
         { text: '- ONE-TIMER VOLLEY: TAP KICK AS A FAST PASS ARRIVES!', color: PALETTE.gold },
         { text: '- P2 KEYS: ARROWS MOVE, ENTER/NUM1 KICK, RCTRL/NUM2 TACKLE.', color: PALETTE.slateLight },
-        { text: '- MOBILE TOUCH: JOYSTICK + KICK/TACKLE/SW + [V] VIEW MODE.', color: PALETTE.iceCyan },
+        { text: '- MOBILE TOUCH: JOYSTICK + KICK/TACKLE + [V] PAD + [F] FULL.', color: PALETTE.iceCyan },
       ],
       [
         { text: '3 ARENAS, 3 PITCH SIZES & 6 CHAOS MUTATORS:', color: PALETTE.gold },
         { text: '- CLASSIC: BALANCED. CONCRETE: FAST WALLS. ROOFTOP: WIND!', color: PALETTE.offWhite },
         { text: '- PITCH SIZE: STANDARD / LARGE (1.8X) / STADIUM XL (2.7X)!', color: PALETTE.turfLine },
+        { text: '- FULLSCREEN [F]: LAYAR PENUH + AUTO WIDE DI BROWSER MOBILE!', color: PALETTE.iceCyan },
         { text: '- MUTATORS: GIANT BALL, ICE PITCH, PINBALL 114%, HOT POTATO,', color: PALETTE.iceCyan },
         { text: '  WIDE GOALS (1.6X), DOUBLE TROUBLE (2 BALLS AT ONCE).', color: PALETTE.iceCyan },
         { text: 'SANDBOX: [1-6] MUTATORS [0] CLEAR [F] FEED [B] BALL [T] AI', color: PALETTE.offWhite },

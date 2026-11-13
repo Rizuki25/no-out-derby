@@ -10,6 +10,7 @@ export interface MobileActionHandlers {
   onPause: () => void;
   onToggleMute: () => void;
   onCycleView: () => void;
+  onToggleFullscreen: () => void;
   onSkipReplay: () => void;
   onSandboxAction: (action: string) => void;
 }
@@ -23,6 +24,8 @@ export interface MobileHudSyncState {
   dashOnCooldown: boolean;
   portraitDeck: boolean;
   portraitDeckTopPx?: number | null;
+  isFullscreen: boolean;
+  isPortrait: boolean;
 }
 
 export class InputManager {
@@ -174,12 +177,31 @@ export class InputManager {
     const kickCharge = document.getElementById('touch-kick-charge');
     const muteBtn = document.getElementById('touch-mute');
     const viewBtn = document.getElementById('touch-view');
+    const fsBtn = document.getElementById('touch-fullscreen');
+    const menuBar = document.getElementById('mobile-menu-bar');
+    const menuFsBtn = document.getElementById('mobile-menu-fs');
+    const menuPadBtn = document.getElementById('mobile-menu-pad');
 
     const { visibility } = state;
     const orientation = getMobileOrientation(window.innerWidth, window.innerHeight);
 
+    document.documentElement.classList.toggle('immersive-fallback', state.isFullscreen);
+
     if (wrapper) {
       wrapper.classList.toggle('in-match-deck', state.portraitDeck && visibility.showOverlay);
+    }
+
+    if (menuBar) {
+      menuBar.classList.toggle('active', visibility.showMenuBar);
+      menuBar.classList.toggle('portrait', state.isPortrait);
+      menuBar.classList.toggle('landscape', !state.isPortrait);
+    }
+    if (menuFsBtn) {
+      menuFsBtn.textContent = state.isFullscreen ? 'KELUAR FULLSCREEN' : '[ ] FULLSCREEN MODE';
+      menuFsBtn.classList.toggle('active', state.isFullscreen);
+    }
+    if (menuPadBtn) {
+      menuPadBtn.textContent = `PAD:${getDisplayModeLabel(state.displayMode)}`;
     }
 
     if (this.mobileOverlayShowing && !visibility.showGameplayControls) {
@@ -228,6 +250,10 @@ export class InputManager {
     }
     if (viewBtn) {
       viewBtn.textContent = `VIEW:${getDisplayModeLabel(state.displayMode)}`;
+    }
+    if (fsBtn) {
+      fsBtn.textContent = state.isFullscreen ? 'EXIT FULL' : '[ ] FULL';
+      fsBtn.classList.toggle('active', state.isFullscreen);
     }
   }
 
@@ -448,6 +474,9 @@ export class InputManager {
     const pauseBtn = document.getElementById('touch-pause');
     const muteBtn = document.getElementById('touch-mute');
     const viewBtn = document.getElementById('touch-view');
+    const fsBtn = document.getElementById('touch-fullscreen');
+    const menuFsBtn = document.getElementById('mobile-menu-fs');
+    const menuPadBtn = document.getElementById('mobile-menu-pad');
     const skipBtn = document.getElementById('touch-skip');
     const sandboxBtns = document.querySelectorAll<HTMLElement>('#touch-sandbox-bar .sandbox-btn');
 
@@ -588,9 +617,25 @@ export class InputManager {
       });
     };
 
+    const bindActivationButton = (el: HTMLElement | null, handler: () => void) => {
+      if (!el) return;
+      el.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        if (e.pointerType === 'touch') this.hasTouchSeen = true;
+      });
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handler();
+      });
+    };
+
     bindSpecialButton(pauseBtn, () => this.mobileHandlers?.onPause());
     bindSpecialButton(muteBtn, () => this.mobileHandlers?.onToggleMute());
     bindSpecialButton(viewBtn, () => this.mobileHandlers?.onCycleView());
+    bindActivationButton(fsBtn, () => this.mobileHandlers?.onToggleFullscreen());
+    bindActivationButton(menuFsBtn, () => this.mobileHandlers?.onToggleFullscreen());
+    bindSpecialButton(menuPadBtn, () => this.mobileHandlers?.onCycleView());
     bindSpecialButton(skipBtn, () => this.mobileHandlers?.onSkipReplay());
 
     sandboxBtns.forEach((btn) => {

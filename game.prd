@@ -128,16 +128,22 @@
   - Mode Mobile (AUTO / MOBILE / PC):
     * AUTO mendeteksi perangkat sentuh/HP secara otomatis. Pengguna PC/Desktop juga
       bisa memaksa tampilan Mobile lewat tombol [V] di Main Menu atau menu Pause.
-    * Layar Portrait  : Pitch tampil di bagian atas; bagian bawah menjadi dek
-                        kontroler genggam (tanpa menutupi lapangan!).
-    * Layar Landscape : Joystick kiri & tombol aksi kanan melayang transparan.
+    * Layar Portrait  : Menu/laga mengisi 100% lebar layar; saat bertanding dek
+                        bawah jadi kontroler tanpa menutupi lapangan!
+    * Layar Landscape : Arena melebar edge-to-edge; joystick & tombol melayang rapi.
+    * Fullscreen Web  : Tersedia tombol "[ ] FULLSCREEN MODE" di bar bawah Menu/Pause,
+                        pill "[F] FULLSCREEN" di kanan atas Menu, opsi di menu Pause,
+                        & tombol "[ ] FULL" di utility bar laga. Browser HP mendukung
+                        kunci orientasi Landscape otomatis; iOS Safari memakai mode
+                        viewport penuh + PWA manifest.
     * Tombol Khusus Mobile: Analog Joystick 360, KICK (bar daya charge langsung),
                         TACKLE/DASH dinamis, SWITCH (2v2/3v3), II PAUSE, SFX, VIEW,
-                        SKIP REPLAY >>, dan bar Sandbox (FEED/BALL/AI BEK/M1-M6/CLR).
+                        [ ] FULL, SKIP REPLAY >>, dan bar Sandbox (FEED/BALL/AI BEK).
 
   C. Tombol Menu & Utilitas
   - Panah / WASD         : Pindah baris menu & ubah nilai pengaturan.
   - Enter / Space / Klik : Mulai laga / konfirmasi pilihan.
+  - [F]                  : Toggle Fullscreen (di Main Menu, Pause, dan Full Time).
   - [V]                  : Ganti mode tampilan Pad (AUTO / MOBILE / PC).
   - [H]                  : Buka panduan cepat HOW TO PLAY (bisa di Menu & Pause).
   - [R]                  : Buka layar CAREER RECORDS dari Main Menu.

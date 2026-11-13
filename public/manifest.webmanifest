@@ -1,0 +1,10 @@
+{
+  "name": "No-Out Derby — Futsal Pantul",
+  "short_name": "No-Out Derby",
+  "description": "Fast 2D pixel arcade wall-bounce futsal without fouls or out-of-bounds.",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#0b0e14",
+  "theme_color": "#0b0e14"
+}

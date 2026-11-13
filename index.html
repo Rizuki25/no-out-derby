@@ -7,8 +7,10 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#0b0e14" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <title>No-Out Derby — Futsal Pantul</title>
     <style>
       * {
@@ -32,6 +34,18 @@
         align-items: center;
         justify-content: center;
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+
+      html.immersive-fallback,
+      html.immersive-fallback body,
+      html:fullscreen,
+      html:fullscreen body,
+      html:-webkit-full-screen,
+      html:-webkit-full-screen body {
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        background-color: #06090e;
       }
 
       #game-wrapper {
@@ -139,6 +153,80 @@
       .touch-pill.muted {
         border-color: rgba(224, 60, 74, 0.7);
         color: #ff8c96;
+      }
+
+      .touch-pill.fs {
+        border-color: rgba(98, 224, 245, 0.55);
+        color: #9beeff;
+      }
+
+      .touch-pill.fs.active,
+      .mobile-fs-btn.active {
+        border-color: #39d98a;
+        background: rgba(16, 48, 36, 0.92);
+        color: #7dffba;
+      }
+
+      /* Mobile Menu / Pause Fullscreen Bar */
+      #mobile-menu-bar {
+        display: none;
+        position: fixed;
+        z-index: 25;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        pointer-events: none;
+      }
+
+      #mobile-menu-bar.active {
+        display: flex;
+      }
+
+      #mobile-menu-bar.portrait {
+        left: 0;
+        right: 0;
+        bottom: max(14px, env(safe-area-inset-bottom));
+        padding: 0 12px;
+        flex-wrap: wrap;
+      }
+
+      #mobile-menu-bar.landscape {
+        right: max(12px, env(safe-area-inset-right));
+        bottom: max(10px, env(safe-area-inset-bottom));
+      }
+
+      .mobile-fs-btn {
+        pointer-events: auto;
+        height: 36px;
+        padding: 0 14px;
+        border-radius: 8px;
+        border: 2px solid rgba(98, 224, 245, 0.75);
+        background: rgba(13, 24, 38, 0.92);
+        color: #9beeff;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.7px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 3px 0 rgba(0, 0, 0, 0.65);
+        cursor: pointer;
+      }
+
+      #mobile-menu-bar.portrait .mobile-fs-btn {
+        height: 42px;
+        padding: 0 18px;
+        font-size: 13px;
+      }
+
+      #mobile-menu-bar.portrait #mobile-menu-pad {
+        height: 42px;
+        padding: 0 12px;
+        font-size: 12px;
+      }
+
+      .mobile-fs-btn:active {
+        transform: translateY(1px) scale(0.97);
       }
 
       /* Sandbox Special Quick Bar */
@@ -425,11 +513,17 @@
       <canvas id="game-canvas" width="480" height="270"></canvas>
     </div>
 
+    <div id="mobile-menu-bar">
+      <button id="mobile-menu-fs" type="button" class="mobile-fs-btn">[ ] FULLSCREEN MODE</button>
+      <button id="mobile-menu-pad" type="button" class="touch-pill">PAD:AUTO</button>
+    </div>
+
     <div id="touch-controls">
       <div id="touch-utility-bar">
         <button id="touch-pause" type="button" class="touch-pill touch-zone">II PAUSE</button>
         <button id="touch-mute" type="button" class="touch-pill touch-zone">SFX:ON</button>
         <button id="touch-view" type="button" class="touch-pill touch-zone">VIEW:AUTO</button>
+        <button id="touch-fullscreen" type="button" class="touch-pill fs touch-zone">[ ] FULL</button>
       </div>
 
       <div id="touch-sandbox-bar">
