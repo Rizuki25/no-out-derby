@@ -188,7 +188,7 @@ export class MutatorManager {
       }
       case 'pinball_mode': {
         params.wallRestitution = 1.14;
-        params.maxBallSpeed = 445;
+        params.maxBallSpeed = 580;
         params.pinballActive = true;
         break;
       }

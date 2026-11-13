@@ -166,7 +166,7 @@ describe('PhysicsEngine', () => {
       expect(kickEv.power).toBeCloseTo(1, 2);
       expect(kickEv.curved).toBe(true);
     }
-    expect(Math.hypot(ball.vx, ball.vy)).toBeGreaterThan(280);
+    expect(Math.hypot(ball.vx, ball.vy)).toBeGreaterThan(425);
   });
 
   it('detects dash tackle stun on opponent and respects Wide Goals scoring', () => {

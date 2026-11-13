@@ -16,7 +16,8 @@ Game **2D Pixel Arcade Futsal** berkecepatan tinggi di arena oktagon tertutup â€
   - **`Dribble + Tackle`:** Sentuh bola untuk menggiring di kaki + *Dash-Tackle* untuk membuat lawan stun dan mencuri penguasaan bola (`STEAL!`).
   - **`Classic (Bounce)`:** Kontrol pantul pinball arkade murni pada setiap sentuhan.
 - **Mekanisme Aksi & Game Feel:**
-  - **Power Shot Charge & Banana Curve:** Tahan tombol *Kick* untuk mengisi daya dan gerakkan ke samping saat melepas untuk tembakan melengkung (*Magnus spin*).
+  - **Power Shot Charge (Roket Penuh) & Banana Curve:** Tahan tombol *Kick* untuk mengisi daya hingga penuh untuk melesatkan tembakan roket berkecepatan tinggi (`455 px/s`, One-Timer hingga `515 px/s`), atau gerakkan ke samping saat melepas untuk tembakan melengkung (*Magnus spin*).
+  - **Fokus 1 Pemain & Rekan Bot Cerdas (Tanpa Auto-Switch):** Di mode `2v2`/`3v3`, kendali user tetap fokus pada 1 pemain (tidak berpindah otomatis secara mengejutkan), sementara rekan bot aktif membantu menutup pertahanan, mengejar lawan, membuka ruang sayap saat menyerang, dan mengirim umpan ke depan (switch manual `[Q]` tetap tersedia bila diinginkan).
   - **One-Timer / Volley Shot:** Ayunkan tendangan tepat saat umpan cepat atau pantulan mengarah ke pemain untuk tembakan super cepat dengan jejak cyan-emas dan *hitstop*.
   - **Golden Goal Overtime & Instant Replay:** Seri saat `00:00` otomatis masuk babak *Golden Goal*; gol spektakuler memutar ulang 3 detik terakhir (180 frame @ 60Hz) bergaya siaran retro (`REC / REPLAY`).
   - **Floating Callouts:** Teks piksel di lapangan untuk momen `ONE-TIMER!`, `BANK SHOT!`, `TOP BIN!`, `ROCKET!`, `GREAT SAVE!`, `CLANG!`, dan `STEAL!`.

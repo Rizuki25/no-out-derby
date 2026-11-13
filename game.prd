@@ -79,12 +79,13 @@
   +---------------------+-------------------------+-------+-------------------------+
   * Catatan Sandbox: Bek bertahan Tim B bisa dinyalakan/dimatikan kapan saja via [T].
 
-  Cara Kerja Switch Pemain (Khusus Mode 2v2 & 3v3):
-  - Manual Switch: Tekan [Q] / [L] (P1) atau [Numpad 0] / [/] (P2 di Versus) untuk
-    langsung berpindah kendali ke pemain lapangan rekan setim.
-  - Auto-Switch Pintar: Jika pemain aktif tidak sedang charging, dash, atau membawa
-    bola, kendali otomatis berpindah saat bola melewati belakang pemain aktif dan
-    rekan setim posisinya jauh lebih dekat ke bola.
+  Fokus Pemain & Bantuan Bot (Mode 2v2 & 3v3):
+  - Tanpa Auto-Switch: Kendali P1 tetap fokus penuh pada 1 pemain yang sama sepanjang
+    laga (tidak pernah berpindah otomatis agar pemain tidak bingung).
+  - Rekan Bot Cerdas: Pemain rekan AI & kiper otomatis membantu bertahan (menutup
+    jalur tembak & menekel lawan) maupun menyerang (membuka sayap & mengumpan).
+  - Manual Switch (Opsional): Tekan [Q] / [L] (P1) atau tombol [SWITCH] di mobile jika
+    ingin berpindah pemain secara sengaja.
 
 
 ======================================================================================
@@ -172,7 +173,8 @@
   1. Power Shot Charge (Tahan Kick)
      - Menahan tombol Kick mengisi tenaga tembakan hingga penuh dalam 0.60 detik.
      - Saat mengisi daya (charging), kecepatan gerak turun sementara menjadi 60%.
-     - Lepas tombol untuk melepaskan tembakan keras plus efek pantulan vertikal.
+     - Tembakan penuh (Full Shot) meluncur ekstra kencang (~455 px/s, One-Timer hingga
+       515 px/s; batas kecepatan arena hingga 500 px/s, Pinball 580 px/s).
 
   2. Banana Curve Shot (Tendangan Melengkung)
      - Saat melepas tombol Kick sambil bergerak MENYAMPING (tegak lurus terhadap
@@ -184,7 +186,7 @@
      - Ayunkan Kick tepat ketika bola lepas melaju cepat menuju pemain:
        * Umpan dari pemain lain berkecepatan >= 115 px/s, ATAU
        * Pantulan dinding/kiper dari sentuhan sendiri >= 125 px/s.
-     - Hasil: Kecepatan tembakan jauh lebih eksplosif (255 - 410+ px/s), batas
+     - Hasil: Kecepatan tembakan jauh lebih eksplosif (265 - 515+ px/s), batas
        kecepatan maksimum bola naik sementara (0.48 detik), muncul jejak partikel
        cyan-emas, efek hitstop singkat, suara khusus, serta callout "ONE-TIMER!".
 

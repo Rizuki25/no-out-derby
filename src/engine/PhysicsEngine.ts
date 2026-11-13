@@ -29,7 +29,7 @@ export function createDefaultPhysicsParams(arenaId: ArenaId = 'classic'): Physic
     ballFriction: 0.986,
     wallRestitution: preset.wallRestitution,
     arenaBaseRestitution: preset.wallRestitution,
-    maxBallSpeed: 355,
+    maxBallSpeed: 500,
     ballRadius: ARENA_CONSTANTS.BASE_BALL_RADIUS,
     ballMass: 1.0,
     playerAccel: 1080,
@@ -205,7 +205,7 @@ export class PhysicsEngine {
         );
         if (hitPinballWall) {
           const speed = Math.hypot(ball.vx, ball.vy);
-          const cap = (ball.oneTimerTimer ?? 0) > 0 ? Math.max(params.maxBallSpeed * 1.18, 415) : params.maxBallSpeed;
+          const cap = (ball.oneTimerTimer ?? 0) > 0 ? Math.max(params.maxBallSpeed * 1.18, 540) : params.maxBallSpeed;
           if (speed > cap) {
             const scale = cap / speed;
             ball.vx *= scale;
@@ -262,7 +262,7 @@ export class PhysicsEngine {
       // Final speed clamp & goal detection
       for (const ball of balls) {
         const spd = Math.hypot(ball.vx, ball.vy);
-        const cap = (ball.oneTimerTimer ?? 0) > 0 ? Math.max(params.maxBallSpeed * 1.18, 415) : params.maxBallSpeed;
+        const cap = (ball.oneTimerTimer ?? 0) > 0 ? Math.max(params.maxBallSpeed * 1.18, 540) : params.maxBallSpeed;
         if (spd > cap) {
           const s = cap / spd;
           ball.vx *= s;
@@ -1106,15 +1106,15 @@ export class PhysicsEngine {
     const massScale = 1 / Math.sqrt(ball.mass);
     const baseSpeed = isOneTimer
       ? power < 0.16
-        ? 255
-        : 265 + power * 145
+        ? 265
+        : 275 + power * 190 + Math.pow(power, 3) * 50
       : power < 0.16
         ? 198
-        : 205 + power * 145;
+        : 210 + power * 185 + Math.pow(power, 3) * 60;
     const speed = baseSpeed * (0.78 + 0.22 * massScale) * mods.shotPowerMult;
     ball.vx = kx * speed;
     ball.vy = ky * speed;
-    ball.vz = isOneTimer ? Math.max(58, 60 + power * 55) : 42 + power * 68;
+    ball.vz = isOneTimer ? Math.max(60, 62 + power * 60) : 42 + power * 82;
     ball.oneTimerTimer = isOneTimer ? 0.48 : 0;
     ball.lastTouchTeam = p.team;
     ball.lastTouchPlayerId = p.id;

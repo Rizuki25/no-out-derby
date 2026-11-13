@@ -146,6 +146,7 @@ export class AIController {
     const ownGoalX = isTeamA ? bounds.left : bounds.right;
     const oppGoalX = isTeamA ? bounds.right : bounds.left;
     const goalCenterY = bounds.centerY;
+    const spanX = bounds.right - bounds.left;
 
     // Pick closest ball
     let ball = balls[0];
@@ -181,9 +182,16 @@ export class AIController {
           break;
         }
         const mateDist = Math.hypot(mate.x - ball.x, mate.y - ball.y);
-        // Human teammate or closer teammate takes priority unless we're noticeably closer
-        const bias = mate.humanSlot !== null ? -18 : -4;
-        if (mateDist + bias < bestBallDist) {
+        if (mate.humanSlot !== null) {
+          // Defer to human player when goal-side; step in decisively when human is beaten upfield
+          const mateWrongSide = attackDir === 1 ? mate.x > ball.x + 16 : mate.x < ball.x - 16;
+          const meGoalSide = attackDir === 1 ? player.x <= ball.x + 10 : player.x >= ball.x - 10;
+          const bias = mateWrongSide && meGoalSide ? 32 : -22;
+          if (mateDist + bias < bestBallDist) {
+            isPrimaryChaser = false;
+            break;
+          }
+        } else if (mateDist - 4 < bestBallDist) {
           isPrimaryChaser = false;
           break;
         }
@@ -254,7 +262,7 @@ export class AIController {
         : undefined;
 
     if (isCarrier) {
-      // In Dribble Mode, carry the ball toward goal and shoot when in range or heavily pressured
+      // In Dribble Mode, pass ahead to an open human striker or carry toward goal & shoot
       const distToOppGoal = Math.abs(oppGoalX - player.x);
       let closestOppDist = Infinity;
       for (const opp of allPlayers) {
@@ -263,8 +271,33 @@ export class AIController {
           if (d < closestOppDist) closestOppDist = d;
         }
       }
-      const inShotRange = distToOppGoal < 108;
-      const pressuredAdvance = closestOppDist < 24 && distToOppGoal < 175;
+
+      const humanMate = teammates.find((m) => m.humanSlot !== null && m.stunTimer <= 0);
+      const minPassGain = Math.max(28, spanX * 0.08);
+      if (
+        humanMate &&
+        distToOppGoal > Math.max(115, spanX * 0.28) &&
+        (humanMate.x - player.x) * attackDir > minPassGain
+      ) {
+        const laneBlocked = allPlayers.some((opp) => {
+          if (opp.team === player.team || opp.role !== 'outfield') return false;
+          const midX = (player.x + humanMate.x) * 0.5;
+          const midY = (player.y + humanMate.y) * 0.5;
+          return Math.hypot(opp.x - midX, opp.y - midY) < 22;
+        });
+        if (!laneBlocked) {
+          const px = humanMate.x + attackDir * 14 - player.x;
+          const py = humanMate.y - player.y;
+          const pDist = Math.hypot(px, py) || 1;
+          input.moveX = px / pDist;
+          input.moveY = py / pDist;
+          input.kickJustReleased = true;
+          return input;
+        }
+      }
+
+      const inShotRange = distToOppGoal < Math.max(108, spanX * 0.28);
+      const pressuredAdvance = closestOppDist < 24 && distToOppGoal < Math.max(175, spanX * 0.45);
       if (inShotRange || pressuredAdvance) {
         const aimVec = this.computeShotVector(
           player,
@@ -378,32 +411,68 @@ export class AIController {
       return;
     }
 
-    // 2v2 / 3v3 Support / Rotation role when teammate is closer or carrying
+    const oppCarrier =
+      ball.carrierId != null
+        ? allPlayers.find((o) => o.id === ball.carrierId && o.team !== player.team)
+        : undefined;
+    const spanX = bounds.right - bounds.left;
+    const spanY = bounds.bottom - bounds.top;
+
+    // 2v2 / 3v3 Support Role when teammate is primary chaser or human carrier: help defend or attack
     if (!isPrimaryChaser) {
+      const hasOwnKeeper = allPlayers.some(
+        (p) => p.team === player.team && p.role === 'keeper'
+      );
+      const humanMate = allPlayers.find(
+        (m) => m.team === player.team && m.role === 'outfield' && m.humanSlot !== null && m.id !== player.id
+      );
       const ballThreateningUs =
-        attackDir === 1 ? ball.x < bounds.centerX + 20 : ball.x > bounds.centerX - 20;
+        (attackDir === 1 ? ball.x < bounds.centerX + spanX * 0.06 : ball.x > bounds.centerX - spanX * 0.06) ||
+        Boolean(oppCarrier);
+
       if (ballThreateningUs) {
         player.aiState = 'DEFEND_GOAL';
-        // Guard between ball and own goal
-        player.aiTargetX = ownGoalX + attackDir * 52;
-        player.aiTargetY = Math.max(
-          bounds.goalTopY - 12,
-          Math.min(bounds.goalBottomY + 12, (ball.y + goalCenterY) * 0.5)
-        );
+        const distToDanger = Math.hypot(ball.x - player.x, ball.y - player.y);
+        const nearOurGoal = Math.abs(ball.x - ownGoalX) < spanX * 0.28;
+        if (distToDanger < 56 || (oppCarrier && nearOurGoal)) {
+          // Step in decisively to block shot or tackle approaching attacker
+          player.aiTargetX = Math.max(
+            bounds.left + 14,
+            Math.min(bounds.right - 14, predX - attackDir * 4)
+          );
+          player.aiTargetY = predY;
+          if (oppCarrier && distToDanger < 44 && Math.random() < Math.max(0.25, profile.dashChance * 0.75)) {
+            player.aiWantDash = true;
+          }
+        } else {
+          // Guard the central corridor between ball and own goal
+          const defDepth = hasOwnKeeper ? Math.max(52, spanX * 0.16) : Math.max(38, spanX * 0.12);
+          player.aiTargetX = ownGoalX + attackDir * defDepth;
+          player.aiTargetY = Math.max(
+            bounds.goalTopY - 10,
+            Math.min(bounds.goalBottomY + 10, ball.y * 0.6 + goalCenterY * 0.4)
+          );
+        }
       } else {
-        // Support open wing opposite to ball Y for pass / rebound
+        // Push up into open opposite wing / backpost lane to receive passes & finish rebounds
         player.aiState = 'ALIGN_SHOT';
-        player.aiTargetX = bounds.centerX + attackDir * 56;
-        player.aiTargetY = ball.y < goalCenterY ? goalCenterY + 48 : goalCenterY - 48;
+        const anchorX =
+          humanMate && ball.carrierId === humanMate.id ? humanMate.x : ball.x;
+        const progress = Math.max(
+          spanX * 0.54,
+          Math.min(spanX * 0.85, Math.abs(anchorX - ownGoalX) + Math.max(46, spanX * 0.14))
+        );
+        const wingOffset = Math.max(40, spanY * 0.24);
+        player.aiTargetX = ownGoalX + attackDir * progress;
+        player.aiTargetY =
+          ball.y < goalCenterY
+            ? Math.min(bounds.bottom - 20, goalCenterY + wingOffset)
+            : Math.max(bounds.top + 20, goalCenterY - wingOffset);
       }
       return;
     }
 
     // In Dribble Mode, if an opponent carries the ball, press and dash-tackle directly
-    const oppCarrier =
-      ball.carrierId != null
-        ? allPlayers.find((o) => o.id === ball.carrierId && o.team !== player.team)
-        : undefined;
     if (oppCarrier) {
       const distToCarrier = Math.hypot(oppCarrier.x - player.x, oppCarrier.y - player.y);
       const behindCarrier =
@@ -435,7 +504,7 @@ export class AIController {
       player.aiTargetY = targetY;
 
       // Dash back defensively if ball is dangerously close to own goal
-      const ballNearOwnGoal = Math.abs(ball.x - ownGoalX) < 120;
+      const ballNearOwnGoal = Math.abs(ball.x - ownGoalX) < Math.max(120, spanX * 0.3);
       if (ballNearOwnGoal && Math.random() < profile.dashChance * 0.55) {
         player.aiWantDash = true;
       }

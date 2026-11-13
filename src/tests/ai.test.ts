@@ -104,4 +104,84 @@ describe('AIController', () => {
     const inpAtTop = ai.computeInput(FIXED_DT, keeper, [keeper], [highBall], bounds, 'pro');
     expect(inpAtTop.moveY).toBeGreaterThanOrEqual(-0.3);
   });
+
+  it('has teammate bot assist defensively when opponent threatens and support/pass in attack', () => {
+    const ai = new AIController();
+    const bounds = createArenaBounds(1.0);
+
+    // 1. Human carrier upfield on Team A -> bot teammate pushes forward into open opposite lane
+    const humanA = makeAIPlayer({
+      id: 1,
+      team: 'A',
+      humanSlot: 1,
+      x: bounds.centerX + 35,
+      y: bounds.centerY - 40,
+      aiDecisionTimer: 0,
+    });
+    const botA = makeAIPlayer({
+      id: 2,
+      team: 'A',
+      humanSlot: null,
+      x: bounds.centerX - 40,
+      y: bounds.centerY,
+      aiDecisionTimer: 0,
+    });
+    const carryBall = makeBall(humanA.x + 10, humanA.y, 40, 0);
+    carryBall.carrierId = humanA.id;
+
+    ai.computeInput(FIXED_DT, botA, [humanA, botA], [carryBall], bounds, 'pro');
+    expect(botA.aiState).toBe('ALIGN_SHOT');
+    expect(botA.aiTargetX).toBeGreaterThan(bounds.centerX);
+    expect(botA.aiTargetY).toBeGreaterThan(bounds.centerY);
+
+    // 2. Opponent carrier in Team A half -> bot drops to DEFEND_GOAL between ball and own goal
+    const oppB = makeAIPlayer({
+      id: 3,
+      team: 'B',
+      humanSlot: null,
+      x: bounds.centerX - 50,
+      y: bounds.centerY - 15,
+      aiDecisionTimer: 0,
+    });
+    const threatBall = makeBall(oppB.x - 10, oppB.y, -50, 0);
+    threatBall.carrierId = oppB.id;
+    humanA.x = bounds.centerX - 60;
+    botA.x = bounds.left + 85;
+    botA.aiDecisionTimer = 0;
+
+    ai.computeInput(FIXED_DT, botA, [humanA, botA, oppB], [threatBall], bounds, 'pro');
+    expect(botA.aiState).toBe('DEFEND_GOAL');
+    expect(botA.aiTargetX).toBeLessThan(bounds.centerX);
+
+    // 3. Bot steals/carries in midfield while human striker is open ahead -> passes forward
+    const botCarrier = makeAIPlayer({
+      id: 2,
+      team: 'A',
+      humanSlot: null,
+      x: bounds.left + 80,
+      y: bounds.centerY,
+      aiDecisionTimer: 0,
+    });
+    const openHuman = makeAIPlayer({
+      id: 1,
+      team: 'A',
+      humanSlot: 1,
+      x: bounds.centerX + 45,
+      y: bounds.centerY + 30,
+      aiDecisionTimer: 0,
+    });
+    const botBall = makeBall(botCarrier.x + 12, botCarrier.y, 0, 0);
+    botBall.carrierId = botCarrier.id;
+
+    const passInput = ai.computeInput(
+      FIXED_DT,
+      botCarrier,
+      [openHuman, botCarrier],
+      [botBall],
+      bounds,
+      'pro'
+    );
+    expect(passInput.kickJustReleased).toBe(true);
+    expect(passInput.moveX).toBeGreaterThan(0.5);
+  });
 });

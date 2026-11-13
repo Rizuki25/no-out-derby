@@ -58,8 +58,6 @@ export class MatchState {
   private recentBounceAge = 99;
   private recentOneTimerAge = 99;
   private replayTrailingFrames = 0;
-  private autoSwitchCooldownP1 = 0;
-  private autoSwitchCooldownP2 = 0;
   public sandboxDefenderEnabled = false;
 
   public readonly physics = new PhysicsEngine();
@@ -361,9 +359,7 @@ export class MatchState {
       events
     );
 
-    // Handle 2v2 manual & smart auto-switching
-    if (this.autoSwitchCooldownP1 > 0) this.autoSwitchCooldownP1 -= dt;
-    if (this.autoSwitchCooldownP2 > 0) this.autoSwitchCooldownP2 -= dt;
+    // Handle manual teammate switching in 2v2 / 3v3 (never auto-switch)
     this.handlePlayerSwitching(humanSlotInputs);
 
     // Build per-player inputs (human vs AI)
@@ -592,6 +588,8 @@ export class MatchState {
   }
 
   private handleSlotSwitch(slot: 1 | 2, team: Team, input: PlayerInput): void {
+    if (!input.switchJustPressed) return;
+
     const teamOutfield = this.players.filter((p) => p.team === team && p.role === 'outfield');
     if (teamOutfield.length < 2) return;
 
@@ -599,31 +597,10 @@ export class MatchState {
     const other = teamOutfield.find((p) => p.humanSlot !== slot);
     if (!current || !other) return;
 
-    if (input.switchJustPressed) {
-      current.humanSlot = null;
-      current.isCharging = false;
-      current.chargeTime = 0;
-      other.humanSlot = slot;
-      if (slot === 1) this.autoSwitchCooldownP1 = 0.8;
-      else this.autoSwitchCooldownP2 = 0.8;
-      return;
-    }
-
-    const cooldown = slot === 1 ? this.autoSwitchCooldownP1 : this.autoSwitchCooldownP2;
-    const isCarrying = this.balls.some((b) => b.carrierId === current.id);
-    if (cooldown > 0 || current.isCharging || current.dashTimer > 0 || isCarrying || this.balls.length === 0) return;
-
-    const primaryBall = this.balls[0];
-    const distCur = Math.hypot(primaryBall.x - current.x, primaryBall.y - current.y);
-    const distOther = Math.hypot(primaryBall.x - other.x, primaryBall.y - other.y);
-
-    const ballBehindCurrent = team === 'A' ? primaryBall.x < current.x - 16 : primaryBall.x > current.x + 16;
-    if (ballBehindCurrent && distOther + 24 < distCur) {
-      current.humanSlot = null;
-      other.humanSlot = slot;
-      if (slot === 1) this.autoSwitchCooldownP1 = 0.9;
-      else this.autoSwitchCooldownP2 = 0.9;
-    }
+    current.humanSlot = null;
+    current.isCharging = false;
+    current.chargeTime = 0;
+    other.humanSlot = slot;
   }
 
   private createPlayer(

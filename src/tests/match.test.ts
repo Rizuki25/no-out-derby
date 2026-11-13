@@ -114,6 +114,43 @@ describe('MatchState', () => {
     expect(newHuman?.team).toBe('A');
   });
 
+  it('never auto-switches player focus when ball moves behind human in 2v2/3v3', () => {
+    for (const mode of ['2v2_ai', '3v3_ai'] as const) {
+      const match = new MatchState();
+      match.startMatch({
+        mode,
+        arena: 'classic',
+        difficulty: 'pro',
+        durationSeconds: 90,
+        mutatorsEnabled: false,
+      });
+
+      const empty = { p1: createEmptyInput(), p2: createEmptyInput() };
+      for (let i = 0; i < 60; i++) match.update(FIXED_DT, empty);
+
+      const teamAOut = match.players.filter((p) => p.team === 'A' && p.role === 'outfield');
+      const human = teamAOut.find((p) => p.humanSlot === 1)!;
+      const botMate = teamAOut.find((p) => p.humanSlot === null)!;
+
+      // Place human far upfield, and put ball right next to bot teammate behind human
+      human.x = match.bounds.centerX + 120;
+      human.y = match.bounds.centerY;
+      botMate.x = match.bounds.centerX - 80;
+      botMate.y = match.bounds.centerY;
+      match.balls[0].x = botMate.x + 14;
+      match.balls[0].y = botMate.y;
+      match.balls[0].vx = -40;
+      match.balls[0].vy = 0;
+
+      for (let i = 0; i < 30; i++) {
+        match.update(FIXED_DT, empty);
+      }
+
+      expect(human.humanSlot).toBe(1);
+      expect(botMate.humanSlot).toBeNull();
+    }
+  });
+
   it('completes a full intensive 90s AI-vs-AI simulation with mutators without NaNs or out-of-bounds bugs', () => {
     const match = new MatchState(() => 0.42);
     match.startMatch({
