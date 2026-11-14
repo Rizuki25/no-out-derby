@@ -88,6 +88,7 @@ export function createDefaultTeamModifiers(): TeamModifiers {
     spinMult: 1.0,
     stunMult: 1.0,
     kickReachBonus: 0,
+    feverActive: false,
   };
 }
 
@@ -120,7 +121,6 @@ export function computeModifiersFromPerks(perks: PerkType[]): TeamModifiers {
 
 export class DerbyCupState {
   public active = false;
-  public is2v2 = false;
   public currentRoundIndex = 0; // 0, 1, 2
   public earnedPerks: PerkType[] = [];
   public perkChoices: PerkType[] = [];
@@ -129,9 +129,8 @@ export class DerbyCupState {
 
   constructor(private readonly rng: () => number = Math.random) {}
 
-  startNewCup(is2v2: boolean): CupRoundConfig {
+  startNewCup(): CupRoundConfig {
     this.active = true;
-    this.is2v2 = is2v2;
     this.currentRoundIndex = 0;
     this.earnedPerks = [];
     this.perkChoices = [];
@@ -168,10 +167,13 @@ export class DerbyCupState {
 
   preparePerkOffer(): PerkType[] {
     const available = ALL_PERKS.filter((p) => !this.earnedPerks.includes(p));
-    const pool = available.length >= 3 ? [...available] : [...ALL_PERKS];
+    // Prefer perks the player does not own yet. Only fall back to the full catalog when every perk
+    // has been earned, and never repeat the same perk twice inside a single offer.
+    const pool = available.length > 0 ? [...available] : [...ALL_PERKS];
     const picked: PerkType[] = [];
     while (picked.length < 3 && pool.length > 0) {
-      const idx = Math.floor(this.rng() * pool.length);
+      const roll = Math.min(0.999999, Math.max(0, this.rng()));
+      const idx = Math.floor(roll * pool.length);
       picked.push(pool.splice(idx, 1)[0]);
     }
     this.perkChoices = picked;

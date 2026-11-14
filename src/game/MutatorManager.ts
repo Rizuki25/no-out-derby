@@ -108,6 +108,11 @@ export class MutatorManager {
     return this.active;
   }
 
+  /** Syncs active mutator display metadata from an authoritative online host snapshot. */
+  setRemoteActive(info: ActiveMutatorInfo | null): void {
+    this.active = info ? { ...info } : null;
+  }
+
   update(
     dt: number,
     elapsedMatchSeconds: number,
@@ -130,14 +135,19 @@ export class MutatorManager {
       }
     }
 
-    // Check trigger timestamps (don't trigger new mutator during Golden Goal unless already running)
+    // Check trigger timestamps (don't trigger new mutator during Golden Goal unless already running).
+    // Mark every elapsed slot as consumed but activate at most one mutator, otherwise a long frame
+    // (tab switch, big dt) would apply and immediately revert several mutators in the same tick.
     if (!isGoldenGoal && this.triggerSchedule.length > 0) {
+      let pendingTrigger = false;
       for (let i = 0; i < this.triggerSchedule.length; i++) {
         if (!this.triggeredIndices.has(i) && elapsedMatchSeconds >= this.triggerSchedule[i]) {
           this.triggeredIndices.add(i);
-          const nextType = this.pickNextMutator();
-          updatedBounds = this.activateMutator(nextType, balls, params, events);
+          pendingTrigger = true;
         }
+      }
+      if (pendingTrigger) {
+        updatedBounds = this.activateMutator(this.pickNextMutator(), balls, params, events);
       }
     }
 
@@ -207,7 +217,7 @@ export class MutatorManager {
       case 'multi_ball': {
         if (balls.length < 2) {
           const b = createArenaBounds(params.goalWidthMultiplier, this.arenaId, this.pitchSize);
-          const angle = (this.rng() - 0.5) * 1.4;
+          const angle = (Math.min(0.999999, Math.max(0, this.rng())) - 0.5) * 1.4;
           const dir = this.rng() < 0.5 ? 1 : -1;
           balls.push({
             id: this.nextBallId++,
@@ -334,7 +344,8 @@ export class MutatorManager {
   private pickNextMutator(): MutatorType {
     const candidates = ALL_MUTATORS.filter((m) => !this.usedMutators.includes(m));
     const pool = candidates.length > 0 ? candidates : ALL_MUTATORS;
-    const idx = Math.floor(this.rng() * pool.length);
-    return pool[idx];
+    // Clamp so an injected rng returning exactly 1 cannot index past the end of the pool.
+    const roll = Math.min(0.999999, Math.max(0, this.rng()));
+    return pool[Math.floor(roll * pool.length)];
   }
 }

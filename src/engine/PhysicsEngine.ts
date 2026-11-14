@@ -18,6 +18,8 @@ import {
   getBallArenaSegments,
   getGoalPosts,
   getPlayerArenaSegments,
+  resolvePassTarget,
+  resolveShotAim,
   WallSegment,
 } from './ArenaGeometry.ts';
 import { ARENA_PRESETS } from './ArenaPresets.ts';
@@ -28,7 +30,6 @@ export function createDefaultPhysicsParams(arenaId: ArenaId = 'classic'): Physic
   return {
     ballFriction: 0.986,
     wallRestitution: preset.wallRestitution,
-    arenaBaseRestitution: preset.wallRestitution,
     maxBallSpeed: 500,
     ballRadius: ARENA_CONSTANTS.BASE_BALL_RADIUS,
     ballMass: 1.0,
@@ -47,6 +48,8 @@ export function createDefaultPhysicsParams(arenaId: ArenaId = 'classic'): Physic
 export interface PhysicsStepResult {
   scoredBy: Team | null;
   scoredBallPos: { x: number; y: number } | null;
+  /** Id of the ball that crossed the goal line (multi-ball safe). */
+  scoredBallId: number | null;
   events: GameEvent[];
 }
 
@@ -56,6 +59,18 @@ const DEFAULT_TEAM_MODS: { A: TeamModifiers; B: TeamModifiers } = {
 };
 
 export class PhysicsEngine {
+  /**
+   * @param rng Injectable random source (used by Hot Potato explosions) so simulations stay
+   * reproducible when a seeded generator is supplied.
+   */
+  constructor(private readonly rng: () => number = Math.random) {}
+
+  private random(): number {
+    const v = this.rng();
+    if (!Number.isFinite(v)) return 0.5;
+    return Math.min(0.999999, Math.max(0, v));
+  }
+
   /**
    * Advances simulation by fixed dt (1/60s) using sub-stepping for tunneling-free bounces.
    * When allowScoring is false (e.g. during goal slow-motion celebration), balls still settle inside the net.
@@ -73,15 +88,18 @@ export class PhysicsEngine {
     const events: GameEvent[] = [];
     let scoredBy: Team | null = null;
     let scoredBallPos: { x: number; y: number } | null = null;
+    let scoredBallId: number | null = null;
 
     const playerById = new Map<number, Player>();
     for (const p of players) {
       playerById.set(p.id, p);
     }
 
+    const controlStyle: ControlStyle = params.controlStyle ?? 'classic';
+
     // 1. Process high-level player timers & input state once per frame
     if (allowScoring) {
-      this.processPlayerInputs(dt, players, inputs, teamModifiers, events);
+      this.processPlayerInputs(dt, players, balls, controlStyle, inputs, teamModifiers, bounds, events);
     } else {
       // During goal celebration slow-mo, bleed off player momentum smoothly
       for (const p of players) {
@@ -89,16 +107,19 @@ export class PhysicsEngine {
         p.vy *= 0.85;
         p.isCharging = false;
         p.chargeTime = 0;
+        p.feintTimer = 0;
         p.animTime += dt;
       }
     }
 
-    const controlStyle: ControlStyle = params.controlStyle ?? 'classic';
     this.syncCarriedBallsState(balls, playerById, controlStyle, allowScoring);
 
     for (const ball of balls) {
       if (ball.oneTimerTimer && ball.oneTimerTimer > 0) {
         ball.oneTimerTimer = Math.max(0, ball.oneTimerTimer - dt);
+      }
+      if (ball.feverTimer && ball.feverTimer > 0) {
+        ball.feverTimer = Math.max(0, ball.feverTimer - dt);
       }
     }
 
@@ -194,7 +215,7 @@ export class PhysicsEngine {
       // Ball vs Arena Walls & Goalposts
       for (const ball of balls) {
         const isCarried = ball.carrierId != null;
-        const hitPinballWall = this.resolveCircleVsSegments(
+        const bouncedOffWall = this.resolveCircleVsSegments(
           ball,
           ball.radius,
           ballSegments,
@@ -203,9 +224,14 @@ export class PhysicsEngine {
           !isCarried && params.pinballActive,
           events
         );
-        if (hitPinballWall) {
+        if (bouncedOffWall) {
           const speed = Math.hypot(ball.vx, ball.vy);
-          const cap = (ball.oneTimerTimer ?? 0) > 0 ? Math.max(params.maxBallSpeed * 1.18, 540) : params.maxBallSpeed;
+          const cap =
+            (ball.feverTimer ?? 0) > 0
+              ? Math.max(params.maxBallSpeed * 1.24, 575)
+              : (ball.oneTimerTimer ?? 0) > 0
+                ? Math.max(params.maxBallSpeed * 1.18, 540)
+                : params.maxBallSpeed;
           if (speed > cap) {
             const scale = cap / speed;
             ball.vx *= scale;
@@ -262,7 +288,12 @@ export class PhysicsEngine {
       // Final speed clamp & goal detection
       for (const ball of balls) {
         const spd = Math.hypot(ball.vx, ball.vy);
-        const cap = (ball.oneTimerTimer ?? 0) > 0 ? Math.max(params.maxBallSpeed * 1.18, 540) : params.maxBallSpeed;
+        const cap =
+          (ball.feverTimer ?? 0) > 0
+            ? Math.max(params.maxBallSpeed * 1.24, 575)
+            : (ball.oneTimerTimer ?? 0) > 0
+              ? Math.max(params.maxBallSpeed * 1.18, 540)
+              : params.maxBallSpeed;
         if (spd > cap) {
           const s = cap / spd;
           ball.vx *= s;
@@ -275,16 +306,18 @@ export class PhysicsEngine {
             if (ball.x + ball.radius * 0.15 < bounds.left) {
               scoredBy = 'B';
               scoredBallPos = { x: ball.x, y: ball.y };
+              scoredBallId = ball.id;
             } else if (ball.x - ball.radius * 0.15 > bounds.right) {
               scoredBy = 'A';
               scoredBallPos = { x: ball.x, y: ball.y };
+              scoredBallId = ball.id;
             }
           }
         }
       }
     }
 
-    return { scoredBy, scoredBallPos, events };
+    return { scoredBy, scoredBallPos, scoredBallId, events };
   }
 
   private syncCarriedBallsState(
@@ -311,8 +344,11 @@ export class PhysicsEngine {
   private processPlayerInputs(
     dt: number,
     players: Player[],
+    balls: Ball[],
+    controlStyle: ControlStyle,
     inputs: Map<number, PlayerInput>,
     teamModifiers: { A: TeamModifiers; B: TeamModifiers },
+    bounds: ArenaBounds,
     events: GameEvent[]
   ): void {
     for (const p of players) {
@@ -321,19 +357,24 @@ export class PhysicsEngine {
       if (p.dashCooldown > 0) p.dashCooldown = Math.max(0, p.dashCooldown - dt);
       if (p.kickContactCooldown > 0) p.kickContactCooldown = Math.max(0, p.kickContactCooldown - dt);
       if (p.kickSwingTimer > 0) p.kickSwingTimer = Math.max(0, p.kickSwingTimer - dt);
+      if (p.kickSwingTimer <= 0) p.isPassSwing = false;
       if (p.pickupCooldown && p.pickupCooldown > 0) p.pickupCooldown = Math.max(0, p.pickupCooldown - dt);
+      if (p.feintTimer && p.feintTimer > 0) p.feintTimer = Math.max(0, p.feintTimer - dt);
 
       if (p.stunTimer > 0) {
         p.stunTimer = Math.max(0, p.stunTimer - dt);
         p.isCharging = false;
         p.chargeTime = 0;
         p.dashTimer = 0;
+        p.feintTimer = 0;
+        p.isPassSwing = false;
         p.animState = 'stun';
         continue;
       }
 
       if (p.dashTimer > 0) {
         p.dashTimer = Math.max(0, p.dashTimer - dt);
+        if (p.dashTimer <= 0) p.feintTimer = 0;
         p.animState = 'dash';
         continue;
       }
@@ -353,42 +394,82 @@ export class PhysicsEngine {
         p.facingY = input.moveY / moveLen;
       }
 
-      // Dash trigger (only for outfield players)
+      // Dash / Skill Dribble Feint trigger (only for outfield players)
       if (p.role === 'outfield' && input.dashJustPressed && p.dashCooldown <= 0) {
         p.isCharging = false;
         p.chargeTime = 0;
         p.kickSwingTimer = 0;
-        p.dashTimer = ARENA_CONSTANTS.DASH_DURATION;
-        p.dashCooldown = ARENA_CONSTANTS.DASH_COOLDOWN * mods.dashCooldownMult;
-        p.dashDirX = p.facingX;
-        p.dashDirY = p.facingY;
-        p.vx = p.dashDirX * ARENA_CONSTANTS.DASH_SPEED;
-        p.vy = p.dashDirY * ARENA_CONSTANTS.DASH_SPEED;
+        p.isPassSwing = false;
+        const isCarrying = controlStyle === 'dribble' && balls.some((b) => b.carrierId === p.id);
+        if (isCarrying) {
+          // Skill Dribble Feint: weaves sharply around oncoming tackler while keeping ball glued
+          const feintSign: -1 | 1 = p.feintDir === 1 ? -1 : 1;
+          p.feintDir = feintSign;
+          p.feintTimer = 0.22;
+          p.dashTimer = 0.22;
+          p.dashCooldown = ARENA_CONSTANTS.DASH_COOLDOWN * 0.85 * mods.dashCooldownMult;
+          const perpX = -p.facingY * feintSign;
+          const perpY = p.facingX * feintSign;
+          const fx = p.facingX * 0.78 + perpX * 0.62;
+          const fy = p.facingY * 0.78 + perpY * 0.62;
+          const fLen = Math.hypot(fx, fy) || 1;
+          p.dashDirX = fx / fLen;
+          p.dashDirY = fy / fLen;
+          const feintSpeed = ARENA_CONSTANTS.DASH_SPEED * 0.96 * (0.5 + 0.5 * mods.moveSpeedMult);
+          p.vx = p.dashDirX * feintSpeed;
+          p.vy = p.dashDirY * feintSpeed;
+        } else {
+          p.feintTimer = 0;
+          p.dashTimer = ARENA_CONSTANTS.DASH_DURATION;
+          p.dashCooldown = ARENA_CONSTANTS.DASH_COOLDOWN * mods.dashCooldownMult;
+          p.dashDirX = p.facingX;
+          p.dashDirY = p.facingY;
+          p.vx = p.dashDirX * ARENA_CONSTANTS.DASH_SPEED;
+          p.vy = p.dashDirY * ARENA_CONSTANTS.DASH_SPEED;
+        }
         p.animState = 'dash';
         p.animTime = 0;
         events.push({ type: 'dash', x: p.x, y: p.y, team: p.team });
         continue;
       }
 
-      // Kick / Charge handling (for outfield players)
+      // Smart Teammate Pass + Kick / Charge handling (for outfield players)
       if (p.role === 'outfield') {
-        if (input.kickHeld) {
-          p.isCharging = true;
-          p.chargeTime = Math.min(ARENA_CONSTANTS.MAX_CHARGE_TIME, p.chargeTime + dt);
-        }
-        if (input.kickJustReleased) {
-          const chargeRatio = Math.min(1, p.chargeTime / ARENA_CONSTANTS.MAX_CHARGE_TIME);
+        if (input.passJustPressed) {
           p.isCharging = false;
           p.chargeTime = 0;
+          const passTarget = resolvePassTarget(p, players, bounds, p.facingX, p.facingY);
           p.kickSwingTimer = 0.13;
-          p.kickSwingPower = chargeRatio;
-          p.kickSwingDirX = p.facingX;
-          p.kickSwingDirY = p.facingY;
+          p.isPassSwing = true;
+          p.kickSwingPower = passTarget
+            ? Math.max(0.28, Math.min(0.58, 0.24 + passTarget.dist / 360))
+            : 0.32;
+          p.kickSwingDirX = passTarget ? passTarget.dirX : p.facingX;
+          p.kickSwingDirY = passTarget ? passTarget.dirY : p.facingY;
+          p.facingX = p.kickSwingDirX;
+          p.facingY = p.kickSwingDirY;
           p.animState = 'kick';
           p.animTime = 0;
-        } else if (!input.kickHeld && p.isCharging) {
-          p.isCharging = false;
-          p.chargeTime = 0;
+        } else {
+          if (input.kickHeld) {
+            p.isCharging = true;
+            p.chargeTime = Math.min(ARENA_CONSTANTS.MAX_CHARGE_TIME, p.chargeTime + dt);
+          }
+          if (input.kickJustReleased) {
+            const chargeRatio = Math.min(1, p.chargeTime / ARENA_CONSTANTS.MAX_CHARGE_TIME);
+            p.isCharging = false;
+            p.chargeTime = 0;
+            p.kickSwingTimer = 0.13;
+            p.isPassSwing = false;
+            p.kickSwingPower = chargeRatio;
+            p.kickSwingDirX = p.facingX;
+            p.kickSwingDirY = p.facingY;
+            p.animState = 'kick';
+            p.animTime = 0;
+          } else if (!input.kickHeld && p.isCharging) {
+            p.isCharging = false;
+            p.chargeTime = 0;
+          }
         }
       }
 
@@ -423,7 +504,8 @@ export class PhysicsEngine {
     }
 
     if (p.dashTimer > 0) {
-      const dashSpeed = ARENA_CONSTANTS.DASH_SPEED * (0.5 + 0.5 * mods.moveSpeedMult);
+      const feintScale = (p.feintTimer ?? 0) > 0 ? 0.96 : 1.0;
+      const dashSpeed = ARENA_CONSTANTS.DASH_SPEED * (0.5 + 0.5 * mods.moveSpeedMult) * feintScale;
       p.vx = p.dashDirX * dashSpeed;
       p.vy = p.dashDirY * dashSpeed;
       p.x += p.vx * subDt;
@@ -435,12 +517,15 @@ export class PhysicsEngine {
     const my = input ? input.moveY : 0;
     const mag = Math.hypot(mx, my);
 
-    // 40% movement penalty while charging Power Shot (PRD §3.3); slight carry drag while dribbling
+    // 40% movement penalty while charging Power Shot (PRD §3.3); slight carry drag while dribbling.
+    // Preserves smooth analog thumbstick throttle (0.28..1.0) while full inputs reach 100% speed cleanly.
     const speedScale = p.isCharging ? 0.6 : 1.0;
     const roleScale = p.role === 'keeper' ? 0.78 : 1.0;
     const perkScale = p.role === 'outfield' ? mods.moveSpeedMult : 1.0;
     const carryScale = isCarryingBall ? 0.94 : 1.0;
-    const maxSpeed = params.playerMaxSpeed * speedScale * roleScale * perkScale * carryScale;
+    const clampedMag = Math.min(1, mag);
+    const throttle = clampedMag >= 0.92 ? 1.0 : 0.28 + 0.72 * (clampedMag / 0.92);
+    const maxSpeed = params.playerMaxSpeed * speedScale * roleScale * perkScale * carryScale * throttle;
 
     if (mag > 0.05) {
       const nx = mx / mag;
@@ -449,6 +534,15 @@ export class PhysicsEngine {
       const accelFactor = params.playerFriction > 0.9 ? 0.55 : 1.0;
       const curSpeed = Math.hypot(p.vx, p.vy);
       if (curSpeed <= maxSpeed) {
+        // Dampen lateral momentum on sharp turf cuts so 360-degree analog dribbling feels fluid, not stiff
+        if (params.playerFriction <= 0.9 && curSpeed > 8) {
+          const align = (p.vx * nx + p.vy * ny) / curSpeed;
+          if (align < 0.85) {
+            const turnGrip = Math.min(1, 14 * subDt);
+            p.vx += (nx * curSpeed - p.vx) * turnGrip * 0.55;
+            p.vy += (ny * curSpeed - p.vy) * turnGrip * 0.55;
+          }
+        }
         p.vx += nx * params.playerAccel * accelFactor * subDt;
         p.vy += ny * params.playerAccel * accelFactor * subDt;
         const nextSpeed = Math.hypot(p.vx, p.vy);
@@ -489,9 +583,17 @@ export class PhysicsEngine {
       const carrier = playerById.get(ball.carrierId);
       if (carrier) {
         const carryDist = carrier.radius + ball.radius + 1.5;
-        const targetX = carrier.x + carrier.facingX * carryDist;
-        const targetY = carrier.y + carrier.facingY * carryDist;
-        const blend = Math.min(1, 72 * subDt);
+        let weaveX = 0;
+        let weaveY = 0;
+        if (carrier.feintTimer && carrier.feintTimer > 0) {
+          const weaveAmp = Math.sin(Math.min(1, carrier.feintTimer / 0.22) * Math.PI) * 5;
+          const sign = carrier.feintDir ?? 1;
+          weaveX = -carrier.facingY * sign * weaveAmp;
+          weaveY = carrier.facingX * sign * weaveAmp;
+        }
+        const targetX = carrier.x + carrier.facingX * carryDist + weaveX;
+        const targetY = carrier.y + carrier.facingY * carryDist + weaveY;
+        const blend = Math.min(1, 96 * subDt);
         ball.x += (targetX - ball.x) * blend;
         ball.y += (targetY - ball.y) * blend;
         ball.vx = carrier.vx;
@@ -594,12 +696,40 @@ export class PhysicsEngine {
 
     if (!allowScoring || a.team === b.team) return;
 
-    // Dash tackle stun + ball steal if opponents collide while one is dashing
-    if (a.dashTimer > 0 && b.role === 'outfield' && b.stunTimer <= 0 && !tackledThisFrame.has(b.id)) {
-      this.applyTackleSteal(a, b, allowScoring, balls, tackledThisFrame, teamModifiers, controlStyle, events);
-    } else if (b.dashTimer > 0 && a.role === 'outfield' && a.stunTimer <= 0 && !tackledThisFrame.has(a.id)) {
-      this.applyTackleSteal(b, a, allowScoring, balls, tackledThisFrame, teamModifiers, controlStyle, events);
+    // Dash tackle stun + ball steal if opponents collide while one is dashing (feinting carriers evade tackles)
+    const aCanTackle = a.dashTimer > 0 && !(a.feintTimer && a.feintTimer > 0);
+    const bCanTackle = b.dashTimer > 0 && !(b.feintTimer && b.feintTimer > 0);
+    if (aCanTackle && b.role === 'outfield' && b.stunTimer <= 0 && !tackledThisFrame.has(b.id)) {
+      if (b.feintTimer && b.feintTimer > 0) {
+        this.applyFeintDodge(b, a, tackledThisFrame, events);
+      } else {
+        this.applyTackleSteal(a, b, allowScoring, balls, tackledThisFrame, teamModifiers, controlStyle, events);
+      }
+    } else if (bCanTackle && a.role === 'outfield' && a.stunTimer <= 0 && !tackledThisFrame.has(a.id)) {
+      if (a.feintTimer && a.feintTimer > 0) {
+        this.applyFeintDodge(a, b, tackledThisFrame, events);
+      } else {
+        this.applyTackleSteal(b, a, allowScoring, balls, tackledThisFrame, teamModifiers, controlStyle, events);
+      }
     }
+  }
+
+  private applyFeintDodge(
+    evader: Player,
+    tackler: Player,
+    tackledThisFrame: Set<number>,
+    events: GameEvent[]
+  ): void {
+    tackledThisFrame.add(evader.id);
+    tackler.dashTimer = 0;
+    tackler.stunTimer = Math.max(tackler.stunTimer, 0.22);
+    events.push({
+      type: 'feint_dodge',
+      x: evader.x,
+      y: evader.y,
+      team: evader.team,
+      playerId: evader.id,
+    });
   }
 
   private applyTackleSteal(
@@ -656,6 +786,7 @@ export class PhysicsEngine {
       ball.untouchedTimer = 0;
       ball.hotPotatoBeepAccum = 0;
       ball.oneTimerTimer = 0;
+      ball.feverTimer = 0;
       ball.spin = 0;
       if (!tacklerHasBall) {
         ball.carrierId = tackler.id;
@@ -849,7 +980,8 @@ export class PhysicsEngine {
         ) {
           ball.carrierId = null;
           p.pickupCooldown = 0.24;
-          this.executePlayerKick(p, ball, nx, ny, mods, kickedThisFrame, events, false);
+          const isPass = Boolean(p.isPassSwing);
+          this.executePlayerKick(p, ball, nx, ny, bounds, mods, kickedThisFrame, events, false, !isPass, true);
         }
         return;
       }
@@ -867,7 +999,11 @@ export class PhysicsEngine {
       }
 
       // Outfielder Dash-Tackle Steal triggered cleanly even when clipping ball first
-      if (p.role === 'outfield' && p.dashTimer > 0 && dist < minDist + 4.0) {
+      if (p.role === 'outfield' && p.dashTimer > 0 && !(p.feintTimer && p.feintTimer > 0) && dist < minDist + 4.0) {
+        if (carrier.feintTimer && carrier.feintTimer > 0) {
+          this.applyFeintDodge(carrier, p, tackledThisFrame, events);
+          return;
+        }
         this.applyTackleSteal(
           p,
           carrier,
@@ -893,13 +1029,14 @@ export class PhysicsEngine {
         if (dirDot > -0.25 || dist < minDist + 1.5) {
           ball.carrierId = null;
           carrier.pickupCooldown = Math.max(carrier.pickupCooldown ?? 0, 0.35);
-          this.executePlayerKick(p, ball, nx, ny, mods, kickedThisFrame, events, false);
+          // Dispossessing a carrier is a poke, not a shot attempt.
+          this.executePlayerKick(p, ball, nx, ny, bounds, mods, kickedThisFrame, events, false, false, false);
         }
       }
       return;
     }
 
-    // 1. Active Kick Swing on loose ball (supports One-Timer Volley!)
+    // 1. Active Kick Swing / Pass Swing on loose ball (supports One-Timer Volley!)
     if (
       p.role === 'outfield' &&
       p.kickSwingTimer > 0 &&
@@ -909,7 +1046,8 @@ export class PhysicsEngine {
     ) {
       const dirDot = nx * p.kickSwingDirX + ny * p.kickSwingDirY;
       if (dirDot > -0.25 || dist < minDist + 1.5) {
-        this.executePlayerKick(p, ball, nx, ny, mods, kickedThisFrame, events, true);
+        const isPass = Boolean(p.isPassSwing);
+        this.executePlayerKick(p, ball, nx, ny, bounds, mods, kickedThisFrame, events, !isPass, !isPass, false);
         return;
       }
     }
@@ -944,6 +1082,7 @@ export class PhysicsEngine {
           ball.vz = 0;
           ball.spin = 0;
           ball.oneTimerTimer = 0;
+          ball.feverTimer = 0;
           ball.lastTouchTeam = p.team;
           ball.lastTouchPlayerId = p.id;
           ball.untouchedTimer = 0;
@@ -957,6 +1096,7 @@ export class PhysicsEngine {
           ball.vy *= 0.42;
           ball.spin = 0;
           ball.oneTimerTimer = 0;
+          ball.feverTimer = 0;
           ball.lastTouchTeam = p.team;
           ball.lastTouchPlayerId = p.id;
           ball.untouchedTimer = 0;
@@ -985,6 +1125,7 @@ export class PhysicsEngine {
       ball.vz = 40;
       ball.spin = 0;
       ball.oneTimerTimer = 0;
+      ball.feverTimer = 0;
       p.kickContactCooldown = 0.16;
       kickedThisFrame.add(ball.id);
       events.push({
@@ -995,6 +1136,7 @@ export class PhysicsEngine {
         curved: false,
         playerId: p.id,
         team: p.team,
+        isShot: false,
       });
       return;
     }
@@ -1077,22 +1219,73 @@ export class PhysicsEngine {
     ball: Ball,
     nx: number,
     ny: number,
+    bounds: ArenaBounds,
     mods: TeamModifiers,
     kickedThisFrame: Set<number>,
     events: GameEvent[],
-    allowOneTimer: boolean
+    allowOneTimer: boolean,
+    isShot = true,
+    wasCarried = false
   ): void {
+    const isPass = Boolean(p.isPassSwing);
     const dirDot = nx * p.kickSwingDirX + ny * p.kickSwingDirY;
     const power = p.kickSwingPower;
     let kx = p.kickSwingDirX;
     let ky = p.kickSwingDirY;
-    if (dirDot > 0.1) {
+    // Loose-ball strikes incorporate contact angle slightly; carried dribble kicks and passes stay crisp on aim line.
+    if (!wasCarried && !isPass && dirDot > 0.1) {
       kx = p.kickSwingDirX * 0.78 + nx * 0.22;
       ky = p.kickSwingDirY * 0.78 + ny * 0.22;
     }
     const kLen = Math.hypot(kx, ky) || 1;
     kx /= kLen;
     ky /= kLen;
+
+    const massScale = 1 / Math.sqrt(ball.mass);
+    if (isPass) {
+      const passSpeed = Math.max(195, Math.min(278, 150 + power * 205)) * (0.85 + 0.15 * massScale);
+      ball.vx = kx * passSpeed;
+      ball.vy = ky * passSpeed;
+      ball.vz = 14;
+      ball.spin = 0;
+      ball.oneTimerTimer = 0;
+      ball.feverTimer = 0;
+      ball.lastTouchTeam = p.team;
+      ball.lastTouchPlayerId = p.id;
+      ball.lastKickPower = Math.min(0.55, power);
+      ball.untouchedTimer = 0;
+      ball.hotPotatoBeepAccum = 0;
+
+      // Give-and-Go: subtle forward push so the passer seamlessly supports the return 1-2
+      if (p.stunTimer <= 0) {
+        p.vx += kx * 38;
+        p.vy += ky * 38;
+      }
+
+      p.kickSwingTimer = 0;
+      p.isPassSwing = false;
+      p.kickContactCooldown = 0.14;
+      kickedThisFrame.add(ball.id);
+      events.push({
+        type: 'kick',
+        x: ball.x,
+        y: ball.y,
+        power: ball.lastKickPower,
+        curved: false,
+        playerId: p.id,
+        team: p.team,
+        isOneTimer: false,
+        isPass: true,
+        isShot: false,
+      });
+      return;
+    }
+
+    if (p.humanSlot !== null && p.role === 'outfield' && isShot) {
+      const resolved = resolveShotAim(p.x, p.y, kx, ky, p.team, bounds, ball.x, ball.y);
+      kx = resolved.x;
+      ky = resolved.y;
+    }
 
     const prevVx = ball.vx;
     const prevVy = ball.vy;
@@ -1103,7 +1296,8 @@ export class PhysicsEngine {
       ((ball.lastTouchPlayerId !== p.id && incomingSpeed >= 115) ||
         (ball.lastTouchPlayerId === p.id && incomingSpeed >= 125 && prevDot < 25));
 
-    const massScale = 1 / Math.sqrt(ball.mass);
+    const isFeverShot = Boolean(mods.feverActive && isShot);
+    const feverMult = isFeverShot ? 1.15 : 1.0;
     const baseSpeed = isOneTimer
       ? power < 0.16
         ? 265
@@ -1111,14 +1305,15 @@ export class PhysicsEngine {
       : power < 0.16
         ? 198
         : 210 + power * 185 + Math.pow(power, 3) * 60;
-    const speed = baseSpeed * (0.78 + 0.22 * massScale) * mods.shotPowerMult;
+    const speed = baseSpeed * (0.78 + 0.22 * massScale) * mods.shotPowerMult * feverMult;
     ball.vx = kx * speed;
     ball.vy = ky * speed;
     ball.vz = isOneTimer ? Math.max(60, 62 + power * 60) : 42 + power * 82;
     ball.oneTimerTimer = isOneTimer ? 0.48 : 0;
+    ball.feverTimer = isFeverShot ? 0.72 : 0;
     ball.lastTouchTeam = p.team;
     ball.lastTouchPlayerId = p.id;
-    const reportedPower = isOneTimer ? Math.max(power, 0.88) : power;
+    const reportedPower = isFeverShot ? 1.0 : isOneTimer ? Math.max(power, 0.88) : power;
     ball.lastKickPower = reportedPower;
     ball.untouchedTimer = 0;
     ball.hotPotatoBeepAccum = 0;
@@ -1129,6 +1324,7 @@ export class PhysicsEngine {
     ball.spin = spin;
 
     p.kickSwingTimer = 0;
+    p.isPassSwing = false;
     p.kickContactCooldown = 0.14;
     kickedThisFrame.add(ball.id);
     events.push({
@@ -1140,6 +1336,8 @@ export class PhysicsEngine {
       playerId: p.id,
       team: p.team,
       isOneTimer,
+      isFeverShot,
+      isShot,
     });
   }
 
@@ -1153,6 +1351,7 @@ export class PhysicsEngine {
     stoleCarrier: boolean
   ): void {
     const incomingSpeed = Math.hypot(ball.vx, ball.vy);
+    const wasFeverShot = (ball.feverTimer ?? 0) > 0;
     const headingIntoGoal = p.team === 'A' ? ball.vx < -55 : ball.vx > 55;
     if (
       !savedThisFrame.has(ball.id) &&
@@ -1167,12 +1366,16 @@ export class PhysicsEngine {
     const clearDirX = p.team === 'A' ? 1 : -1;
     const wingSign = ball.y < bounds.centerY ? -0.45 : 0.45;
     const cLen = Math.hypot(clearDirX, wingSign);
-    const speed = Math.max(180, incomingSpeed * 0.72);
+    const speed = wasFeverShot ? Math.max(215, incomingSpeed * 0.8) : Math.max(180, incomingSpeed * 0.72);
     ball.vx = (clearDirX / cLen) * speed;
     ball.vy = (wingSign / cLen) * speed;
-    ball.vz = 32;
+    ball.vz = wasFeverShot ? 48 : 32;
     ball.spin = 0;
     ball.oneTimerTimer = 0;
+    ball.feverTimer = 0;
+    if (wasFeverShot) {
+      p.stunTimer = Math.max(p.stunTimer, 0.15);
+    }
     ball.lastTouchTeam = p.team;
     ball.lastTouchPlayerId = p.id;
     ball.untouchedTimer = 0;
@@ -1188,6 +1391,7 @@ export class PhysicsEngine {
         curved: false,
         playerId: p.id,
         team: p.team,
+        isShot: false,
       });
     }
   }
@@ -1225,7 +1429,7 @@ export class PhysicsEngine {
     // Launch ball toward pitch center/random diagonal so it keeps action alive
     const toCenterX = bounds.centerX - ball.x;
     const toCenterY = bounds.centerY - ball.y;
-    const angle = Math.atan2(toCenterY, toCenterX) + (Math.random() - 0.5) * 1.1;
+    const angle = Math.atan2(toCenterY, toCenterX) + (this.random() - 0.5) * 1.1;
     const launchSpeed = 230;
     ball.vx = Math.cos(angle) * launchSpeed;
     ball.vy = Math.sin(angle) * launchSpeed;

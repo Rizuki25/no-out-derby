@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createArenaBounds, isInsidePitchOctagon } from '../engine/ArenaGeometry.ts';
+import { createArenaBounds, isInsidePitchOctagon, resolveShotAim } from '../engine/ArenaGeometry.ts';
 import { createDefaultPhysicsParams, PhysicsEngine } from '../engine/PhysicsEngine.ts';
 import { AIController, createEmptyInput } from '../game/AIController.ts';
 import { MatchState } from '../game/MatchState.ts';
 import { MutatorManager } from '../game/MutatorManager.ts';
+import { drawShotAimArrow } from '../render/PixelSprites.ts';
 import { ARENA_CONSTANTS, Ball, FIXED_DT, GameMode, Player, PlayerInput } from '../types.ts';
 
 function makeBall(overrides: Partial<Ball> = {}): Ball {
@@ -65,7 +66,6 @@ function makePlayer(overrides: Partial<Player> = {}): Player {
     aiWantCharge: false,
     aiChargeTarget: 0,
     aiWantDash: false,
-    shirtNumber: 9,
     ...overrides,
   };
 }
@@ -290,5 +290,285 @@ describe('Dribble Mode, Tackle Steal, and 3v3 Mode', () => {
     }
     expect(movedLeft).toBe(true);
     expect(sawDash).toBe(true);
+  });
+
+  it('resolves human goal-cone aim assist cleanly without hijacking bank shots or passes', () => {
+    const bounds = createArenaBounds();
+
+    // Off-center attacking shot pressing straight right (8-way D) assists gently into goalmouth
+    const assisted = resolveShotAim(320, 102, 1, 0, 'A', bounds, 331.5, 102);
+    expect(assisted.isGoalLocked).toBe(true);
+    expect(assisted.x).toBeGreaterThan(0.9);
+    expect(assisted.y).toBeGreaterThan(0.15);
+    const tGoal = (bounds.right - 331.5) / assisted.x;
+    const hitY = 102 + assisted.y * tGoal;
+    expect(hitY).toBeGreaterThanOrEqual(bounds.goalTopY + 5);
+    expect(hitY).toBeLessThanOrEqual(bounds.goalBottomY - 5);
+
+    // Steep +45 deg corner bank shot from midfield stays unbent (manual bank angle preserved)
+    const bank = resolveShotAim(260, bounds.centerY, Math.SQRT1_2, Math.SQRT1_2, 'A', bounds);
+    expect(bank.isGoalLocked).toBe(false);
+    expect(bank.y).toBeCloseTo(Math.SQRT1_2, 3);
+
+    // Back-pass & lateral pass stay 100% manual
+    const backPass = resolveShotAim(340, 100, -1, 0, 'A', bounds);
+    expect(backPass.isGoalLocked).toBe(false);
+    expect(backPass.x).toBeCloseTo(-1, 5);
+
+    // Team B symmetric left-goal aim assist
+    const teamBAim = resolveShotAim(160, 190, -1, 0, 'B', bounds, 148.5, 190);
+    expect(teamBAim.isGoalLocked).toBe(true);
+    expect(teamBAim.x).toBeLessThan(-0.9);
+    expect(teamBAim.y).toBeLessThan(-0.15);
+  });
+
+  it('fires carried dribble kicks strictly along the resolved aim arrow and renders arrow cleanly', () => {
+    const physics = new PhysicsEngine();
+    const bounds = createArenaBounds();
+    const params = { ...createDefaultPhysicsParams(), controlStyle: 'dribble' as const };
+
+    const p = makePlayer({
+      id: 1,
+      team: 'A',
+      humanSlot: 1,
+      x: 325,
+      y: 102,
+      facingX: 1,
+      facingY: 0,
+      isCharging: true,
+      chargeTime: 0.45,
+    });
+    const ball = makeBall({ x: 336, y: 102, carrierId: p.id });
+
+    // Smoke-check canvas drawing of shot aim arrow while carrying & goal-locked
+    const fillRectCalls: number[] = [];
+    const fakeCtx = {
+      save: () => {},
+      restore: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      closePath: () => {},
+      stroke: () => {},
+      fill: () => {},
+      fillRect: (...args: number[]) => {
+        fillRectCalls.push(args.length);
+      },
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      lineCap: 'butt',
+      lineJoin: 'miter',
+      globalAlpha: 1,
+    } as unknown as CanvasRenderingContext2D;
+    expect(() => drawShotAimArrow(fakeCtx, p, ball, bounds, 0.25)).not.toThrow();
+    expect(fillRectCalls.length).toBeGreaterThan(0);
+
+    // Release kick -> ball velocity matches resolveShotAim direction and enters right goalmouth
+    const expectedAim = resolveShotAim(p.x, p.y, 1, 0, 'A', bounds, ball.x, ball.y);
+    const inputs = new Map<number, PlayerInput>([
+      [1, { ...createEmptyInput(), moveX: 1, moveY: 0, kickJustReleased: true }],
+    ]);
+    physics.step(FIXED_DT, [ball], [p], inputs, bounds, params, true);
+
+    const speed = Math.hypot(ball.vx, ball.vy);
+    expect(speed).toBeGreaterThan(250);
+    expect(ball.vx / speed).toBeCloseTo(expectedAim.x, 1);
+    expect(ball.vy / speed).toBeCloseTo(expectedAim.y, 1);
+
+    let scored = false;
+    for (let i = 0; i < 35; i++) {
+      const stepRes = physics.step(FIXED_DT, [ball], [p], new Map(), bounds, params, true);
+      if (stepRes.scoredBy === 'A') {
+        scored = true;
+        break;
+      }
+    }
+    expect(scored).toBe(true);
+  });
+
+  it('spawns 8 players (1 keeper + 3 outfield per team) and enforces Stadium XL across all 4v4 modes', () => {
+    const modes4v4: GameMode[] = ['4v4_ai', 'derby_cup_4v4', '4v4_local', '4v4_coop'];
+    for (const mode of modes4v4) {
+      const match = new MatchState(() => 0.42);
+      match.startMatch({
+        mode,
+        arena: 'classic',
+        pitchSize: 'standard',
+        difficulty: 'pro',
+        durationSeconds: 90,
+        mutatorsEnabled: false,
+        controlStyle: 'dribble',
+      });
+
+      expect(match.isFourVsFourMode()).toBe(true);
+      expect(match.hasKeepers()).toBe(true);
+      expect(match.canHumanSwitchPlayer()).toBe(true);
+      expect(match.config.pitchSize).toBe('xl');
+      expect(match.bounds.right - match.bounds.left).toBeGreaterThan(640);
+      expect(match.players).toHaveLength(8);
+
+      const teamAOut = match.players.filter((p) => p.team === 'A' && p.role === 'outfield');
+      const teamAKeepers = match.players.filter((p) => p.team === 'A' && p.role === 'keeper');
+      const teamBOut = match.players.filter((p) => p.team === 'B' && p.role === 'outfield');
+      const teamBKeepers = match.players.filter((p) => p.team === 'B' && p.role === 'keeper');
+
+      expect(teamAOut).toHaveLength(3);
+      expect(teamAKeepers).toHaveLength(1);
+      expect(teamBOut).toHaveLength(3);
+      expect(teamBKeepers).toHaveLength(1);
+
+      for (const p of match.players) {
+        expect(isInsidePitchOctagon(p.x, p.y, match.bounds, p.radius)).toBe(true);
+      }
+
+      const p1Count = match.players.filter((p) => p.humanSlot === 1).length;
+      const p2Count = match.players.filter((p) => p.humanSlot === 2).length;
+      expect(p1Count).toBe(1);
+
+      if (mode === '4v4_local') {
+        expect(p2Count).toBe(1);
+        expect(teamBOut.some((p) => p.humanSlot === 2)).toBe(true);
+      } else if (mode === '4v4_coop') {
+        expect(p2Count).toBe(1);
+        expect(teamAOut.filter((p) => p.humanSlot !== null)).toHaveLength(2);
+        expect(teamAOut.filter((p) => p.humanSlot === null)).toHaveLength(1);
+      } else {
+        expect(p2Count).toBe(0);
+      }
+
+      if (mode === 'derby_cup_4v4') {
+        expect(match.cup.active).toBe(true);
+      }
+    }
+  });
+
+  it('cycles manual switch round-robin across 3 outfielders in 4v4 and avoids slot collisions in 4v4 coop', () => {
+    const match = new MatchState(() => 0.42);
+    match.startMatch({
+      mode: '4v4_ai',
+      arena: 'classic',
+      pitchSize: 'standard',
+      difficulty: 'pro',
+      durationSeconds: 90,
+      mutatorsEnabled: false,
+      controlStyle: 'dribble',
+    });
+
+    const empty = { p1: createEmptyInput(), p2: createEmptyInput() };
+    for (let i = 0; i < 100; i++) {
+      match.update(FIXED_DT, empty);
+    }
+    expect(match.phase).toBe('PLAYING');
+
+    const teamAIds = match.players
+      .filter((p) => p.team === 'A' && p.role === 'outfield')
+      .map((p) => p.id);
+    expect(teamAIds).toHaveLength(3);
+    const activeId = () => match.players.find((p) => p.humanSlot === 1)?.id;
+    expect(activeId()).toBe(teamAIds[0]);
+
+    const switchInput = {
+      p1: { ...createEmptyInput(), switchJustPressed: true },
+      p2: createEmptyInput(),
+    };
+    match.update(FIXED_DT, switchInput);
+    expect(activeId()).toBe(teamAIds[1]);
+    match.update(FIXED_DT, switchInput);
+    expect(activeId()).toBe(teamAIds[2]);
+    match.update(FIXED_DT, switchInput);
+    expect(activeId()).toBe(teamAIds[0]);
+
+    // In 4v4 co-op, P1 switching skips P2 and moves only onto the AI teammate
+    match.startMatch({
+      mode: '4v4_coop',
+      arena: 'classic',
+      pitchSize: 'xl',
+      difficulty: 'pro',
+      durationSeconds: 90,
+      mutatorsEnabled: false,
+      controlStyle: 'dribble',
+    });
+    for (let i = 0; i < 100; i++) {
+      match.update(FIXED_DT, empty);
+    }
+    const coopIds = match.players
+      .filter((p) => p.team === 'A' && p.role === 'outfield')
+      .map((p) => p.id);
+    expect(match.players.find((p) => p.humanSlot === 1)?.id).toBe(coopIds[0]);
+    expect(match.players.find((p) => p.humanSlot === 2)?.id).toBe(coopIds[1]);
+
+    match.update(FIXED_DT, switchInput);
+    expect(match.players.find((p) => p.humanSlot === 1)?.id).toBe(coopIds[2]);
+    expect(match.players.find((p) => p.humanSlot === 2)?.id).toBe(coopIds[1]);
+  });
+
+  it('spreads multiple 4v4 AI support teammates across distinct offensive and defensive lanes', () => {
+    const bounds = createArenaBounds(1.0, 'classic', 'xl');
+    const ai = new AIController(() => 0.4);
+
+    const human = makePlayer({
+      id: 1,
+      team: 'A',
+      humanSlot: 1,
+      x: bounds.centerX + 90,
+      y: bounds.centerY - 40,
+    });
+    const bot1 = makePlayer({
+      id: 2,
+      team: 'A',
+      humanSlot: null,
+      x: bounds.centerX + 20,
+      y: bounds.centerY,
+      aiDecisionTimer: 0,
+    });
+    const bot2 = makePlayer({
+      id: 3,
+      team: 'A',
+      humanSlot: null,
+      x: bounds.centerX + 20,
+      y: bounds.centerY,
+      aiDecisionTimer: 0,
+    });
+    const keeperA = makePlayer({
+      id: 4,
+      team: 'A',
+      role: 'keeper',
+      humanSlot: null,
+      x: bounds.left + 10,
+      y: bounds.centerY,
+    });
+
+    // Attacking scenario: human carries the ball forward -> bots take separate wing & trailer lanes
+    const attackBall = makeBall({ x: human.x + 11, y: human.y, carrierId: human.id });
+    ai.computeInput(FIXED_DT, bot1, [human, bot1, bot2, keeperA], [attackBall], bounds, 'pro');
+    ai.computeInput(FIXED_DT, bot2, [human, bot1, bot2, keeperA], [attackBall], bounds, 'pro');
+    expect(bot1.aiState).toBe('ALIGN_SHOT');
+    expect(bot2.aiState).toBe('ALIGN_SHOT');
+    expect(
+      Math.hypot(bot1.aiTargetX - bot2.aiTargetX, bot1.aiTargetY - bot2.aiTargetY)
+    ).toBeGreaterThan(35);
+
+    // Defensive scenario: opponent threatens near Team A box -> bots split goal cover vs weak-side lane
+    const oppAttacker = makePlayer({
+      id: 5,
+      team: 'B',
+      humanSlot: null,
+      x: bounds.left + 95,
+      y: bounds.centerY - 25,
+    });
+    human.x = bounds.centerX;
+    human.y = bounds.centerY;
+    bot1.aiDecisionTimer = 0;
+    bot2.aiDecisionTimer = 0;
+    const defBall = makeBall({ x: oppAttacker.x - 11, y: oppAttacker.y, carrierId: oppAttacker.id });
+    const defRoster = [human, bot1, bot2, keeperA, oppAttacker];
+    ai.computeInput(FIXED_DT, bot1, defRoster, [defBall], bounds, 'pro');
+    ai.computeInput(FIXED_DT, bot2, defRoster, [defBall], bounds, 'pro');
+    expect(bot1.aiState).toBe('DEFEND_GOAL');
+    expect(bot2.aiState).toBe('DEFEND_GOAL');
+    expect(
+      Math.hypot(bot1.aiTargetX - bot2.aiTargetX, bot1.aiTargetY - bot2.aiTargetY)
+    ).toBeGreaterThan(35);
   });
 });

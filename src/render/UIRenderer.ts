@@ -16,9 +16,11 @@ import {
 } from '../engine/ArenaPresets.ts';
 import { CareerRecordsData } from '../game/CareerRecords.ts';
 import { PERK_CATALOG } from '../game/DerbyCup.ts';
+import { ConnectedGamepadInfo } from '../game/InputManager.ts';
 import { MatchState } from '../game/MatchState.ts';
 import { isFullscreenActive } from '../game/Fullscreen.ts';
 import { getDisplayModeLabel } from '../game/MobileLayout.ts';
+import type { OnlineStatusBadge } from '../net/OnlineSession.ts';
 import { PALETTE } from './Palette.ts';
 import { drawPixelText } from './PixelFont.ts';
 import { drawMutatorIcon } from './PixelSprites.ts';
@@ -36,14 +38,18 @@ const MODE_OPTIONS: Array<{ value: GameMode; label: string }> = [
   { value: '1v1_ai', label: '1V1 VS AI' },
   { value: '2v2_ai', label: '2V2 VS AI' },
   { value: '3v3_ai', label: '3V3 (GK+2) VS AI' },
+  { value: '4v4_ai', label: '4V4 (GK+3) VS AI' },
   { value: 'derby_cup_1v1', label: 'DERBY CUP 1V1' },
   { value: 'derby_cup_2v2', label: 'DERBY CUP 2V2' },
   { value: 'derby_cup_3v3', label: 'DERBY CUP 3V3' },
+  { value: 'derby_cup_4v4', label: 'DERBY CUP 4V4' },
   { value: '1v1_local', label: '2P 1V1 VERSUS' },
   { value: '2v2_local', label: '2P 2V2 VERSUS' },
   { value: '3v3_local', label: '2P 3V3 VERSUS' },
+  { value: '4v4_local', label: '2P 4V4 VERSUS' },
   { value: '2v2_coop', label: '2P 2V2 CO-OP' },
   { value: '3v3_coop', label: '2P 3V3 CO-OP' },
+  { value: '4v4_coop', label: '2P 4V4 CO-OP' },
   { value: 'practice_sandbox', label: 'PRACTICE SANDBOX' },
 ];
 
@@ -60,6 +66,7 @@ export interface UICallbacks {
   onUpdateConfig: (patch: Partial<MatchConfig>) => void;
   onResume: () => void;
   onRematch: () => void;
+  onRestartRound: () => void;
   onAdvanceCup: () => void;
   onSelectPerk: (choiceIdx: number) => void;
   onQuitToMenu: () => void;
@@ -73,6 +80,7 @@ export interface UICallbacks {
   onResetRecords: () => void;
   onCycleDisplayMode: () => void;
   onToggleFullscreen: () => void;
+  onOpenOnlineLobby: () => void;
 }
 
 export class UIRenderer {
@@ -90,6 +98,10 @@ export class UIRenderer {
   private mutatorBannerTimer = 0;
   private mutatorBannerLabel = '';
   private mutatorBannerSub = '';
+  private toastBannerTimer = 0;
+  private toastBannerTitle = '';
+  private toastBannerSub = '';
+  private toastBannerColor: string = PALETTE.iceCyan;
   private clock = 0;
 
   private clickZones: ClickRect[] = [];
@@ -100,10 +112,20 @@ export class UIRenderer {
     this.mutatorBannerTimer = 2.8;
   }
 
+  triggerToastBanner(title: string, subtitle = '', color: string = PALETTE.iceCyan, duration = 2.6): void {
+    this.toastBannerTitle = title;
+    this.toastBannerSub = subtitle;
+    this.toastBannerColor = color;
+    this.toastBannerTimer = duration;
+  }
+
   update(rawDt: number): void {
     this.clock += rawDt;
     if (this.mutatorBannerTimer > 0) {
       this.mutatorBannerTimer = Math.max(0, this.mutatorBannerTimer - rawDt);
+    }
+    if (this.toastBannerTimer > 0) {
+      this.toastBannerTimer = Math.max(0, this.toastBannerTimer - rawDt);
     }
   }
 
@@ -117,7 +139,9 @@ export class UIRenderer {
     menuConfig: MatchConfig,
     muted: boolean,
     records: CareerRecordsData,
-    callbacks: UICallbacks
+    callbacks: UICallbacks,
+    connectedGamepads: ConnectedGamepadInfo[] = [],
+    onlineStatus?: OnlineStatusBadge
   ): void {
     this.clickZones = [];
 
@@ -127,28 +151,38 @@ export class UIRenderer {
       } else if (this.menuOverlay === 'records') {
         this.renderRecordsOverlay(ctx, records, callbacks);
       } else {
-        this.renderMainMenu(ctx, menuConfig, muted, callbacks);
+        this.renderMainMenu(ctx, menuConfig, muted, callbacks, connectedGamepads);
+      }
+      if (this.toastBannerTimer > 0) {
+        this.renderToastBanner(ctx, 18);
       }
       return;
     }
 
     if (match.phase === 'PERK_SELECT') {
       this.renderPerkSelectScreen(ctx, match, callbacks);
+      if (this.toastBannerTimer > 0) this.renderToastBanner(ctx, 18);
       return;
     }
 
     if (match.phase === 'CUP_CHAMPION') {
       this.renderCupChampionScreen(ctx, match, callbacks);
+      if (this.toastBannerTimer > 0) this.renderToastBanner(ctx, 18);
       return;
     }
 
     if (match.phase === 'REPLAY') {
-      this.renderReplayOverlay(ctx, match, callbacks);
+      this.renderReplayOverlay(ctx, match, callbacks, onlineStatus);
       return;
     }
 
     // In-game Top HUD
-    this.renderHud(ctx, match, muted, callbacks);
+    this.renderHud(ctx, match, muted, callbacks, onlineStatus);
+
+    if (onlineStatus?.active && onlineStatus.disconnectNotice) {
+      this.renderOnlineDisconnectOverlay(ctx, onlineStatus.disconnectNotice, callbacks);
+      return;
+    }
 
     // Phase overlays
     if (match.phase === 'KICKOFF') {
@@ -169,27 +203,72 @@ export class UIRenderer {
       this.renderCenterBanner(ctx, match.isGoldenGoal ? 'GOLDEN GOAL!' : teamName, scoreKit.light);
     } else if (match.phase === 'GOLDEN_GOAL_INTRO') {
       this.renderCenterBanner(ctx, 'GOLDEN GOAL!', PALETTE.gold, 'NEXT SCORE WINS!');
-    } else if (match.phase === 'PAUSED') {
+    } else if (match.phase === 'PAUSED' || (onlineStatus?.localPaused && match.phase !== 'FULL_TIME')) {
       if (this.pauseGuideOpen) {
         this.renderGuideOverlay(ctx, callbacks);
       } else {
-        this.renderPauseOverlay(ctx, match, callbacks);
+        this.renderPauseOverlay(ctx, match, callbacks, onlineStatus);
       }
     } else if (match.phase === 'FULL_TIME') {
-      this.renderFullTimeOverlay(ctx, match, callbacks);
+      this.renderFullTimeOverlay(ctx, match, callbacks, onlineStatus);
     }
 
     // Mutator top slide-in banner
     if (this.mutatorBannerTimer > 0 && match.phase === 'PLAYING') {
       this.renderMutatorBanner(ctx);
     }
+
+    if (this.toastBannerTimer > 0) {
+      const y = this.mutatorBannerTimer > 0 && match.phase === 'PLAYING' ? 46 : 21;
+      this.renderToastBanner(ctx, y);
+    }
+  }
+
+  private renderOnlineDisconnectOverlay(
+    ctx: CanvasRenderingContext2D,
+    reason: string,
+    callbacks: UICallbacks
+  ): void {
+    ctx.fillStyle = 'rgba(11, 14, 20, 0.84)';
+    ctx.fillRect(0, 0, NATIVE_WIDTH, NATIVE_HEIGHT);
+
+    const cx = NATIVE_WIDTH * 0.5;
+    const bw = 276;
+    const bh = 104;
+    const bx = cx - bw * 0.5;
+    const by = 82;
+
+    ctx.fillStyle = PALETTE.deepNavy;
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = PALETTE.dangerRed;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx, by, bw, bh);
+
+    drawPixelText(ctx, 'KONEKSI TERPUTUS', cx, by + 14, PALETTE.dangerRed, 2, 'center', PALETTE.inkBlack);
+    drawPixelText(ctx, reason.toUpperCase().slice(0, 40), cx, by + 40, PALETTE.offWhite, 1, 'center');
+
+    ctx.fillStyle = PALETTE.teamAPrimary;
+    ctx.fillRect(cx - 88, by + 64, 176, 22);
+    ctx.strokeStyle = PALETTE.gold;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(cx - 87.5, by + 64.5, 175, 21);
+    drawPixelText(ctx, 'MAIN MENU (ENTER)', cx, by + 72, PALETTE.pureWhite, 1, 'center');
+
+    this.clickZones.push({
+      x: cx - 88,
+      y: by + 64,
+      w: 176,
+      h: 22,
+      action: callbacks.onQuitToMenu,
+    });
   }
 
   private renderHud(
     ctx: CanvasRenderingContext2D,
     match: MatchState,
     muted: boolean,
-    callbacks: UICallbacks
+    callbacks: UICallbacks,
+    onlineStatus?: OnlineStatusBadge
   ): void {
     ctx.fillStyle = PALETTE.inkBlack;
     ctx.fillRect(0, 0, NATIVE_WIDTH, 17);
@@ -231,6 +310,44 @@ export class UIRenderer {
     drawPixelText(ctx, `${match.scoreB}`, cx + 44, 5, PALETTE.pureWhite, 1, 'center');
     drawPixelText(ctx, kitB.tag, cx + 72, 5, PALETTE.pureWhite, 1, 'center');
 
+    // Compact Team Fever Gauges beside scoreboard
+    const drawFeverHud = (team: 'A' | 'B', barX: number) => {
+      const barW = 34;
+      const active = match.isTeamFeverActive(team);
+      const pct = match.getTeamFever(team);
+      const ratio = active
+        ? Math.max(0, (team === 'A' ? match.teamFeverTimerA : match.teamFeverTimerB) / 4.5)
+        : Math.max(0, Math.min(1, pct / 100));
+      const ready = !active && pct >= 100;
+      const blink = Math.floor(this.clock * 10) % 2 === 0;
+      const label = active ? 'BURN' : ready ? 'FEV!' : 'FEV';
+      const labelColor = active
+        ? blink
+          ? PALETTE.gold
+          : PALETTE.amber
+        : ready
+          ? blink
+            ? PALETTE.gold
+            : PALETTE.pureWhite
+          : PALETTE.slateLight;
+      drawPixelText(ctx, label, barX + barW * 0.5, 3, labelColor, 1, 'center');
+      ctx.fillStyle = PALETTE.deepNavy;
+      ctx.fillRect(barX, 10, barW, 4);
+      ctx.fillStyle = active
+        ? blink
+          ? PALETTE.gold
+          : PALETTE.amber
+        : ready
+          ? PALETTE.gold
+          : team === 'A'
+            ? PALETTE.iceCyan
+            : PALETTE.amber;
+      const fillW = Math.round(barW * ratio);
+      if (fillW > 0) ctx.fillRect(barX, 10, fillW, 4);
+    };
+    drawFeverHud('A', cx - 128);
+    drawFeverHud('B', cx + 94);
+
     // Left HUD: Active Mutator OR Derby Cup Round + Active Perks OR Rooftop Wind
     const activeMut = match.mutators.getActive();
     if (activeMut) {
@@ -247,6 +364,10 @@ export class UIRenderer {
       const wy = match.params.windY;
       const arrow = wy > 3 ? 'WIND V' : wy < -3 ? 'WIND ^' : 'WIND ~';
       drawPixelText(ctx, arrow, 8, 5, PALETTE.iceCyan, 1, 'left');
+    } else if (onlineStatus?.active) {
+      const pingText = onlineStatus.pingMs !== null ? `${onlineStatus.pingMs}MS` : '...';
+      const roleTag = onlineStatus.role === 'host' ? 'HOST' : 'P2';
+      drawPixelText(ctx, `${roleTag} ${pingText}`, 8, 5, PALETTE.iceCyan, 1, 'left');
     } else if (match.config.mutatorsEnabled) {
       drawPixelText(ctx, 'CHAOS READY', 8, 5, PALETTE.slateLight, 1, 'left');
     }
@@ -276,38 +397,73 @@ export class UIRenderer {
       const defState = match.sandboxDefenderEnabled ? 'ON' : 'OFF';
       drawPixelText(
         ctx,
-        `1-6:MUTATE  0:OFF  F:VOLLEY PASS  B:RESET BALL  T:DEFENDER(${defState})`,
+        `1-6:MUTATE  0:OFF  F:PASS  B:BALL  T:AI(${defState})  E:PASS  C:FEV`,
         cx,
         257,
         PALETTE.iceCyan,
         1,
         'center'
       );
-    } else if (match.isTwoPlayerMode()) {
+    } else if (onlineStatus?.active) {
+      const hasMulti = match.hasTwoOutfieldPerTeam();
+      if (hasMulti) {
+        const tac = onlineStatus.localTeam === 'B' ? match.teamTacticB : match.teamTacticA;
+        const tacTag = tac === 'attack' ? 'TAC:ATK' : tac === 'defend' ? 'TAC:DEF' : 'TAC:BAL';
+        const tacCol =
+          tac === 'attack' ? PALETTE.amber : tac === 'defend' ? PALETTE.iceCyan : PALETTE.slateLight;
+        drawPixelText(ctx, tacTag, 8, 257, tacCol, 1, 'left');
+      }
+      const pingTxt = onlineStatus.pingMs !== null ? `${onlineStatus.pingMs}MS` : '--MS';
+      const roleTxt = onlineStatus.role === 'host' ? 'P1' : 'P2';
       drawPixelText(
         ctx,
-        'P1:WASD + SPACE/SHIFT   /   P2:ARROWS + ENTER/RCTRL',
-        cx,
+        hasMulti ? 'SP:KICK SH:FEINT E:PASS C:FEV Q:SW' : 'WASD/ARR SP:KICK SH:FEINT C:FEV',
+        cx - 6,
+        257,
+        PALETTE.slateLight,
+        1,
+        'center'
+      );
+      drawPixelText(ctx, `${roleTxt} ${pingTxt}`, NATIVE_WIDTH - 8, 257, PALETTE.iceCyan, 1, 'right');
+    } else if (match.isTwoPlayerMode()) {
+      if (match.hasTwoOutfieldPerTeam()) {
+        const tac = match.teamTacticA;
+        const tacTag = tac === 'attack' ? 'TAC:ATK' : tac === 'defend' ? 'TAC:DEF' : 'TAC:BAL';
+        const tacCol =
+          tac === 'attack' ? PALETTE.amber : tac === 'defend' ? PALETTE.iceCyan : PALETTE.slateLight;
+        drawPixelText(ctx, tacTag, 8, 257, tacCol, 1, 'left');
+      }
+      drawPixelText(
+        ctx,
+        'P1:WASD+SP/SH/E/C  /  P2:ARR+ENT/RC/./\\',
+        match.hasTwoOutfieldPerTeam() ? cx + 26 : cx,
         257,
         PALETTE.slateLight,
         1,
         'center'
       );
     } else {
-      const switchHint = match.hasTwoOutfieldPerTeam() ? '   [Q] SWITCH' : '';
-      drawPixelText(
-        ctx,
-        `MOVE:WASD/ARROWS   KICK/HOLD:SPACE   DASH:SHIFT${switchHint}`,
-        cx,
-        257,
-        PALETTE.slateLight,
-        1,
-        'center'
-      );
+      const hasMulti = match.hasTwoOutfieldPerTeam();
+      if (hasMulti) {
+        const tac = match.teamTacticA;
+        const tacTag = tac === 'attack' ? 'TAC:ATK' : tac === 'defend' ? 'TAC:DEF' : 'TAC:BAL';
+        const tacCol =
+          tac === 'attack' ? PALETTE.amber : tac === 'defend' ? PALETTE.iceCyan : PALETTE.slateLight;
+        drawPixelText(ctx, tacTag, 8, 257, tacCol, 1, 'left');
+      }
+      const hint = hasMulti
+        ? 'SP:KICK  SH:FEINT/DSH  E:PASS  C:FEV  Q:SW  TAB/1-3:TAC'
+        : 'MOVE:WASD/ARR   KICK:SPACE   DASH/FEINT:SHIFT   C:FEVER';
+      drawPixelText(ctx, hint, hasMulti ? cx + 26 : cx, 257, PALETTE.slateLight, 1, 'center');
     }
   }
 
-  private renderReplayOverlay(ctx: CanvasRenderingContext2D, match: MatchState, callbacks: UICallbacks): void {
+  private renderReplayOverlay(
+    ctx: CanvasRenderingContext2D,
+    match: MatchState,
+    callbacks: UICallbacks,
+    onlineStatus?: OnlineStatusBadge
+  ): void {
     // Classic arcade broadcast letterbox strips
     ctx.fillStyle = PALETTE.inkBlack;
     ctx.fillRect(0, 0, NATIVE_WIDTH, 18);
@@ -327,8 +483,17 @@ export class UIRenderer {
     const tagCol = match.replay.scoringTeam === 'A' ? PALETTE.teamALight : PALETTE.teamBLight;
     drawPixelText(ctx, match.replay.activeGoalTag, NATIVE_WIDTH * 0.5, 5, tagCol, 1, 'center');
 
+    const isGuest = onlineStatus?.active && onlineStatus.role === 'guest';
     // Skip hint top-right
-    drawPixelText(ctx, '[SPACE] SKIP >>', NATIVE_WIDTH - 8, 5, PALETTE.gold, 1, 'right');
+    drawPixelText(
+      ctx,
+      isGuest ? 'GOAL REPLAY' : '[SPACE] SKIP >>',
+      NATIVE_WIDTH - 8,
+      5,
+      isGuest ? PALETTE.iceCyan : PALETTE.gold,
+      1,
+      'right'
+    );
 
     // Bottom progress bar
     const prog = match.replay.getPlaybackProgress();
@@ -337,14 +502,36 @@ export class UIRenderer {
     ctx.fillStyle = PALETTE.gold;
     ctx.fillRect(24, NATIVE_HEIGHT - 10, Math.round((NATIVE_WIDTH - 48) * prog), 4);
 
-    // Clicking anywhere skips replay
-    this.clickZones.push({
-      x: 0,
-      y: 0,
-      w: NATIVE_WIDTH,
-      h: NATIVE_HEIGHT,
-      action: callbacks.onSkipReplay,
-    });
+    if (!isGuest) {
+      // Clicking anywhere skips replay
+      this.clickZones.push({
+        x: 0,
+        y: 0,
+        w: NATIVE_WIDTH,
+        h: NATIVE_HEIGHT,
+        action: callbacks.onSkipReplay,
+      });
+    }
+  }
+
+  private renderToastBanner(ctx: CanvasRenderingContext2D, by: number): void {
+    const cx = NATIVE_WIDTH * 0.5;
+    const bw = 248;
+    const bh = this.toastBannerSub ? 22 : 14;
+    const bx = cx - bw * 0.5;
+
+    ctx.fillStyle = PALETTE.inkBlack;
+    ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+    ctx.fillStyle = PALETTE.deepNavy;
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = this.toastBannerColor;
+    ctx.fillRect(bx, by, bw, 2);
+    ctx.fillRect(bx, by + bh - 2, bw, 2);
+
+    drawPixelText(ctx, this.toastBannerTitle, cx, by + 4, this.toastBannerColor, 1, 'center');
+    if (this.toastBannerSub) {
+      drawPixelText(ctx, this.toastBannerSub, cx, by + 13, PALETTE.pureWhite, 1, 'center');
+    }
   }
 
   private renderMutatorBanner(ctx: CanvasRenderingContext2D): void {
@@ -390,7 +577,8 @@ export class UIRenderer {
     ctx: CanvasRenderingContext2D,
     config: MatchConfig,
     muted: boolean,
-    callbacks: UICallbacks
+    callbacks: UICallbacks,
+    connectedGamepads: ConnectedGamepadInfo[] = []
   ): void {
     ctx.fillStyle = PALETTE.inkBlack;
     ctx.fillRect(0, 0, NATIVE_WIDTH, NATIVE_HEIGHT);
@@ -522,7 +710,13 @@ export class UIRenderer {
     const isCup =
       config.mode === 'derby_cup_1v1' ||
       config.mode === 'derby_cup_2v2' ||
-      config.mode === 'derby_cup_3v3';
+      config.mode === 'derby_cup_3v3' ||
+      config.mode === 'derby_cup_4v4';
+    const isFourVsFour =
+      config.mode === '4v4_ai' ||
+      config.mode === 'derby_cup_4v4' ||
+      config.mode === '4v4_local' ||
+      config.mode === '4v4_coop';
     const isSandbox = config.mode === 'practice_sandbox';
     const modeLabel = MODE_OPTIONS.find((m) => m.value === config.mode)?.label ?? '1V1 VS AI';
     const controlStyle = config.controlStyle ?? 'classic';
@@ -586,8 +780,10 @@ export class UIRenderer {
       {
         id: 4,
         label: 'PITCH SIZE',
-        value: `< ${pitchSizeLabel} >`,
+        value: isFourVsFour ? 'STADIUM XL (4V4 ONLY)' : `< ${pitchSizeLabel} >`,
+        disabled: isFourVsFour,
         onClick: () => {
+          if (isFourVsFour) return;
           const idx = PITCH_SIZE_LIST.indexOf(pitchSize);
           const next: PitchSize = PITCH_SIZE_LIST[(idx + 1) % PITCH_SIZE_LIST.length];
           callbacks.onUpdateConfig({ pitchSize: next });
@@ -651,13 +847,55 @@ export class UIRenderer {
       const ry = panelY + row.id * rowH;
       const selected = this.menuRow === row.id;
 
-      ctx.fillStyle = row.highlight
-        ? selected
-          ? kitA.primary
-          : kitA.dark
-        : selected
-          ? PALETTE.slateMid
-          : PALETTE.deepNavy;
+      if (row.highlight) {
+        const kickW = 202;
+        const onlineX = panelX + kickW + 6;
+        const onlineW = panelW - kickW - 6;
+
+        ctx.fillStyle = selected ? kitA.primary : kitA.dark;
+        ctx.fillRect(panelX, ry, kickW, 15);
+        if (selected) {
+          ctx.strokeStyle = PALETTE.gold;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(panelX + 0.5, ry + 0.5, kickW - 1, 14);
+        }
+
+        const ctaText = isCup
+          ? 'START DERBY CUP (ENT)'
+          : isSandbox
+            ? 'START PRACTICE (ENT)'
+            : '>>> KICK OFF! (ENT)';
+        drawPixelText(ctx, ctaText, panelX + kickW * 0.5, ry + 4, PALETTE.pureWhite, 1, 'center');
+        this.clickZones.push({
+          x: panelX,
+          y: ry,
+          w: kickW,
+          h: 15,
+          action: () => {
+            this.menuRow = row.id;
+            row.onClick();
+          },
+        });
+
+        ctx.fillStyle = '#124861';
+        ctx.fillRect(onlineX, ry, onlineW, 15);
+        ctx.strokeStyle = PALETTE.iceCyan;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(onlineX + 0.5, ry + 0.5, onlineW - 1, 14);
+        drawPixelText(ctx, 'ONLINE P2P [O]', onlineX + onlineW * 0.5, ry + 4, PALETTE.pureWhite, 1, 'center');
+        this.clickZones.push({
+          x: onlineX,
+          y: ry,
+          w: onlineW,
+          h: 15,
+          action: () => {
+            callbacks.onOpenOnlineLobby();
+          },
+        });
+        continue;
+      }
+
+      ctx.fillStyle = selected ? PALETTE.slateMid : PALETTE.deepNavy;
       ctx.fillRect(panelX, ry, panelW, 15);
 
       if (selected) {
@@ -666,43 +904,34 @@ export class UIRenderer {
         ctx.strokeRect(panelX + 0.5, ry + 0.5, panelW - 1, 14);
       }
 
-      if (row.highlight) {
-        const ctaText = isCup
-          ? '>>> START DERBY CUP! (ENTER) <<<'
-          : isSandbox
-            ? '>>> START PRACTICE! (ENTER) <<<'
-            : '>>> KICK OFF! (ENTER) <<<';
-        drawPixelText(ctx, ctaText, NATIVE_WIDTH * 0.5, ry + 4, PALETTE.pureWhite, 1, 'center');
-      } else {
-        drawPixelText(
-          ctx,
-          row.label,
-          panelX + 10,
-          ry + 4,
-          row.disabled ? PALETTE.slateLight : PALETTE.offWhite,
-          1,
-          'left'
-        );
-        if (row.swatch) {
-          const sx = panelX + panelW - 20;
-          const sy = ry + 2;
-          ctx.fillStyle = PALETTE.inkBlack;
-          ctx.fillRect(sx - 1, sy - 1, 12, 12);
-          ctx.fillStyle = row.swatch.primary;
-          ctx.fillRect(sx, sy, 10, 10);
-          ctx.fillStyle = row.swatch.trim;
-          ctx.fillRect(sx + 4, sy, 2, 10);
-        }
-        drawPixelText(
-          ctx,
-          row.value,
-          panelX + panelW - (row.swatch ? 26 : 10),
-          ry + 4,
-          row.disabled ? PALETTE.slateLight : selected ? PALETTE.gold : PALETTE.turfLine,
-          1,
-          'right'
-        );
+      drawPixelText(
+        ctx,
+        row.label,
+        panelX + 10,
+        ry + 4,
+        row.disabled ? PALETTE.slateLight : PALETTE.offWhite,
+        1,
+        'left'
+      );
+      if (row.swatch) {
+        const sx = panelX + panelW - 20;
+        const sy = ry + 2;
+        ctx.fillStyle = PALETTE.inkBlack;
+        ctx.fillRect(sx - 1, sy - 1, 12, 12);
+        ctx.fillStyle = row.swatch.primary;
+        ctx.fillRect(sx, sy, 10, 10);
+        ctx.fillStyle = row.swatch.trim;
+        ctx.fillRect(sx + 4, sy, 2, 10);
       }
+      drawPixelText(
+        ctx,
+        row.value,
+        panelX + panelW - (row.swatch ? 26 : 10),
+        ry + 4,
+        row.disabled ? PALETTE.slateLight : selected ? PALETTE.gold : PALETTE.turfLine,
+        1,
+        'right'
+      );
 
       this.clickZones.push({
         x: panelX,
@@ -716,17 +945,31 @@ export class UIRenderer {
       });
     }
 
-    // Bottom Controls Strip
+    // Bottom Controls Strip + Live External Gamepad Status
     ctx.fillStyle = PALETTE.deepNavy;
     ctx.fillRect(24, 213, NATIVE_WIDTH - 48, 52);
-    ctx.strokeStyle = PALETTE.slateMid;
+    ctx.strokeStyle = connectedGamepads.length > 0 ? '#39d98a' : PALETTE.slateMid;
     ctx.lineWidth = 1;
     ctx.strokeRect(24.5, 213.5, NATIVE_WIDTH - 49, 51);
 
-    drawPixelText(ctx, 'CONTROLS (KEYBOARD / GAMEPAD READY)', NATIVE_WIDTH * 0.5, 217, PALETTE.gold, 1, 'center');
+    const padStatusText =
+      connectedGamepads.length >= 2
+        ? `JOYSTICK P1+P2 OK: ${connectedGamepads[0].shortName} / ${connectedGamepads[1].shortName}`
+        : connectedGamepads.length === 1
+          ? `EXT JOYSTICK P1 OK: ${connectedGamepads[0].shortName} (360 ANALOG + RUMBLE)`
+          : 'CONTROLS READY (KEYBOARD + EXT JOYSTICK: TEKAN TOMBOL PAD)';
     drawPixelText(
       ctx,
-      'P1: WASD  /  SPACE OR J: KICK  /  SHIFT OR K: TACKLE  /  Q: SWITCH',
+      padStatusText,
+      NATIVE_WIDTH * 0.5,
+      217,
+      connectedGamepads.length > 0 ? '#7dffba' : PALETTE.gold,
+      1,
+      'center'
+    );
+    drawPixelText(
+      ctx,
+      'P1: WASD / L-STICK  |  KICK: SPACE / A,RT  |  TACKLE: SHIFT / B,RB',
       NATIVE_WIDTH * 0.5,
       228,
       PALETTE.offWhite,
@@ -735,7 +978,7 @@ export class UIRenderer {
     );
     drawPixelText(
       ctx,
-      'P2: ARROWS / ENTER OR NUM1: KICK / RCTRL OR NUM2: TACKLE / NUM0: SW',
+      'P2: ARROWS / PAD-2  |  KICK: ENTER,N1 / A,RT  |  SWITCH: Q / Y,LB',
       NATIVE_WIDTH * 0.5,
       239,
       PALETTE.iceCyan,
@@ -744,7 +987,7 @@ export class UIRenderer {
     );
     drawPixelText(
       ctx,
-      'UP/DOWN:MENU   LEFT/RIGHT:SET   H:HOW TO PLAY   R:CAREER RECORDS',
+      'STICK/DPAD:MENU  ENT:OK  O:ONLINE  H:GUIDE  R:RECORDS',
       NATIVE_WIDTH * 0.5,
       250,
       PALETTE.slateLight,
@@ -756,7 +999,8 @@ export class UIRenderer {
   private renderPauseOverlay(
     ctx: CanvasRenderingContext2D,
     match: MatchState,
-    callbacks: UICallbacks
+    callbacks: UICallbacks,
+    onlineStatus?: OnlineStatusBadge
   ): void {
     ctx.fillStyle = 'rgba(11, 14, 20, 0.76)';
     ctx.fillRect(0, 0, NATIVE_WIDTH, NATIVE_HEIGHT);
@@ -771,13 +1015,20 @@ export class UIRenderer {
     ctx.lineWidth = 2;
     ctx.strokeRect(bx, by, bw, bh);
 
-    drawPixelText(ctx, 'PAUSED', NATIVE_WIDTH * 0.5, by + 13, PALETTE.gold, 2, 'center');
+    const isOnline = Boolean(onlineStatus?.active);
+    drawPixelText(ctx, isOnline ? 'ONLINE MENU' : 'PAUSED', NATIVE_WIDTH * 0.5, by + 13, PALETTE.gold, 2, 'center');
 
     const padLabel = getDisplayModeLabel(match.config.displayMode ?? 'auto');
     const fsActive = isFullscreenActive(typeof document !== 'undefined' ? document : null);
     const items = [
       { id: 0, label: 'RESUME MATCH', action: callbacks.onResume },
-      { id: 1, label: 'RESTART MATCH', action: callbacks.onRematch },
+      {
+        id: 1,
+        label: isOnline
+          ? `LIVE P2P · ROOM ${onlineStatus?.roomCode ?? '----'}`
+          : 'RESTART MATCH',
+        action: isOnline ? callbacks.onResume : callbacks.onRestartRound,
+      },
       {
         id: 2,
         label: fsActive ? 'FULLSCREEN: ON [F]' : 'FULLSCREEN: OFF [F]',
@@ -785,7 +1036,7 @@ export class UIRenderer {
       },
       { id: 3, label: `MOBILE PAD: ${padLabel}`, action: callbacks.onCycleDisplayMode },
       { id: 4, label: 'HOW TO PLAY [H]', action: callbacks.onOpenGuide },
-      { id: 5, label: 'MAIN MENU', action: callbacks.onQuitToMenu },
+      { id: 5, label: isOnline ? 'LEAVE ONLINE ROOM' : 'MAIN MENU', action: callbacks.onQuitToMenu },
     ];
 
     for (const item of items) {
@@ -812,7 +1063,12 @@ export class UIRenderer {
     }
   }
 
-  private renderFullTimeOverlay(ctx: CanvasRenderingContext2D, match: MatchState, callbacks: UICallbacks): void {
+  private renderFullTimeOverlay(
+    ctx: CanvasRenderingContext2D,
+    match: MatchState,
+    callbacks: UICallbacks,
+    onlineStatus?: OnlineStatusBadge
+  ): void {
     ctx.fillStyle = 'rgba(11, 14, 20, 0.80)';
     ctx.fillRect(0, 0, NATIVE_WIDTH, NATIVE_HEIGHT);
 
@@ -894,8 +1150,20 @@ export class UIRenderer {
       'center'
     );
 
-    const primaryAction =
-      isCup && match.winner === 'A'
+    const isOnline = Boolean(onlineStatus?.active);
+    const primaryAction = isOnline
+      ? {
+          label:
+            onlineStatus?.role === 'host'
+              ? onlineStatus.peerWantsRematch
+                ? 'LAWAN SIAP! REMATCH!'
+                : 'REMATCH! (ENTER)'
+              : onlineStatus?.localWantsRematch
+                ? 'MENUNGGU HOST...'
+                : 'MINTA REMATCH (ENTER)',
+          action: callbacks.onRematch,
+        }
+      : isCup && match.winner === 'A'
         ? {
             label: match.cup.isFinalRound() ? 'CLAIM TROPHY! (ENTER)' : 'PICK PERK & NEXT ->',
             action: callbacks.onAdvanceCup,
@@ -907,7 +1175,7 @@ export class UIRenderer {
 
     const btns = [
       { id: 0, label: primaryAction.label, action: primaryAction.action },
-      { id: 1, label: 'MAIN MENU', action: callbacks.onQuitToMenu },
+      { id: 1, label: isOnline ? 'LEAVE ONLINE ROOM' : 'MAIN MENU', action: callbacks.onQuitToMenu },
     ];
 
     for (const btn of btns) {
@@ -1232,20 +1500,21 @@ export class UIRenderer {
         { text: '- ALL 45-DEG CORNERS & WALLS BOUNCE BALL BACK INTO PLAY.', color: PALETTE.offWhite },
         { text: '- TIED AT 00:00? TRIGGERS GOLDEN GOAL: NEXT GOAL WINS!', color: PALETTE.iceCyan },
         { text: '- 1V1: 1 OUTFIELD + 1 GK.  2V2: 2 OUTFIELD (NO GK).', color: PALETTE.offWhite },
-        { text: '- 3V3: 2 OUTFIELD + 1 AI GK! BOT ASSISTS DEF & ATTACK.', color: PALETTE.offWhite },
+        { text: '- 3V3: 2 OUTFIELD + 1 AI GK.  4V4 (XL): 3 OUTFIELD + 1 GK!', color: PALETTE.offWhite },
         { text: '- PLAYER FOCUS: STAYS ON 1 PLAYER (MANUAL [Q] TO SWITCH).', color: PALETTE.iceCyan },
         { text: '- DERBY CUP: BEAT 3 ROUNDS & PICK PERKS BETWEEN STAGES.', color: PALETTE.turfLine },
         { text: '- REPLAY: SPECTACULAR GOALS AUTO-REPLAY (SPACE TO SKIP).', color: PALETTE.slateLight },
       ],
       [
-        { text: 'CONTROL STYLES (SET IN MENU -> BALL CTRL):', color: PALETTE.gold },
-        { text: '- DRIBBLE + TACKLE: TOUCH BALL TO CARRY AT YOUR FEET.', color: PALETTE.iceCyan },
-        { text: '  PRESS DASH INTO CARRIER TO STUN & STEAL THE BALL!', color: PALETTE.offWhite },
-        { text: '- CLASSIC (BOUNCE): PURE ARCADE PINBALL TOUCH ON CONTACT.', color: PALETTE.offWhite },
-        { text: '- POWER & CURVE: HOLD KICK (SPACE/J), STEER SIDEWAYS TO BEND!', color: PALETTE.turfLine },
-        { text: '- ONE-TIMER VOLLEY: TAP KICK AS A FAST PASS ARRIVES!', color: PALETTE.gold },
-        { text: '- P2 KEYS: ARROWS MOVE, ENTER/NUM1 KICK, RCTRL/NUM2 TACKLE.', color: PALETTE.slateLight },
-        { text: '- MOBILE TOUCH: JOYSTICK + KICK/TACKLE + [V] PAD + [F] FULL.', color: PALETTE.iceCyan },
+        { text: 'CONTROL STYLES & IN-PITCH ACTIONS:', color: PALETTE.gold },
+        { text: '- DRIBBLE + TACKLE: CARRY BALL (AIM -> GOLD WHEN ON GOAL!).', color: PALETTE.iceCyan },
+        { text: '- SMART PASS [E] / PAD X: LOCK ON OPEN TEAMMATE + GIVE&GO!', color: PALETTE.iceCyan },
+        { text: '- SKILL FEINT: PRESS DASH WHILE CARRYING TO DODGE TACKLES!', color: PALETTE.gold },
+        { text: '- FEVER BLITZ [C] / RB: 100% GAUGE -> SUPER SPEED & STRIKE!', color: PALETTE.amber },
+        { text: '- TACTICS [TAB/1-3] / LB: BALANCED / ATTACK+ / DEFEND+ (2V2+).', color: PALETTE.turfLine },
+        { text: '- POWER & CURVE: HOLD KICK (SPACE/J), STEER SIDEWAYS TO BEND!', color: PALETTE.offWhite },
+        { text: '- EXT PAD: L-STICK 360, A/RT KICK, B/LT FEINT, X PASS, Y SW.', color: '#7dffba' },
+        { text: '- MOBILE TOUCH: STICK + KICK/FEINT/PASS/FEVER + TAC PILL.', color: PALETTE.iceCyan },
       ],
       [
         { text: '3 ARENAS, 3 PITCH SIZES & 6 CHAOS MUTATORS:', color: PALETTE.gold },
@@ -1259,8 +1528,9 @@ export class UIRenderer {
     ];
 
     const lines = pages[this.guidePage] ?? pages[0];
+    const lineStep = lines.length >= 9 ? 17 : 19;
     for (let i = 0; i < lines.length; i++) {
-      drawPixelText(ctx, lines[i].text, 32, 64 + i * 19, lines[i].color, 1, 'left');
+      drawPixelText(ctx, lines[i].text, 32, 63 + i * lineStep, lines[i].color, 1, 'left');
     }
 
     // Footer bar + Back button

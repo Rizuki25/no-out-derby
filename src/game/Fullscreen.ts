@@ -49,6 +49,18 @@ export function resetFallbackFullscreen(): void {
 }
 
 /**
+ * Reconciles the immersive fallback flag with the real browser state.
+ * Native fullscreen supersedes the fallback, so entering it (or the user leaving fallback via
+ * any other path) must clear the stale flag, otherwise the UI keeps claiming "EXIT FULL".
+ */
+export function syncFullscreenFallback(doc: FullscreenDocLike | null | undefined): boolean {
+  if (isNativeFullscreen(doc)) {
+    fallbackFullscreenActive = false;
+  }
+  return isFullscreenActive(doc);
+}
+
+/**
  * Enters browser fullscreen if supported (with optional landscape orientation lock on mobile),
  * falling back cleanly to immersive viewport-fill mode on platforms like iOS Safari tabs.
  */

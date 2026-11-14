@@ -22,6 +22,7 @@
   [8] Turnamen Derby Cup & Daftar Perk
   [9] Kustomisasi Jersey, Career Records & Quality of Life
   [10] Tips Cepat untuk Pemula
+  [11] Online Multiplayer P2P (WebRTC + Vercel Signaling)
 
 
 ======================================================================================
@@ -67,19 +68,24 @@
   | 1V1 VS AI           | 1 Outfield + 1 GK       |  Ya   | P1 (Tim A) vs AI        |
   | 2V2 VS AI           | 2 Outfield (Tanpa GK)   | Tidak | P1 + 1 AI vs 2 AI       |
   | 3V3 (GK+2) VS AI    | 2 Outfield + 1 GK       |  Ya   | P1 + 1 AI vs 2 AI + GK  |
+  | 4V4 (GK+3) VS AI    | 3 Outfield + 1 GK (XL)  |  Ya   | P1 + 2 AI vs 3 AI + GK  |
   | DERBY CUP 1V1       | Turnamen 3 Babak (1v1)  |  Ya   | P1 (Tim A) vs 3 AI      |
   | DERBY CUP 2V2       | Turnamen 3 Babak (2v2)  | Tidak | P1 + 1 AI vs 3 Tim AI   |
   | DERBY CUP 3V3       | Turnamen 3 Babak (3v3)  |  Ya   | P1 + 1 AI vs 3 Tim AI   |
+  | DERBY CUP 4V4       | Turnamen 3 Babak (4v4)  |  Ya   | P1 + 2 AI vs 3 Tim AI   |
   | 2P 1V1 VERSUS       | 1 Outfield + 1 GK       |  Ya   | P1 (Tim A) vs P2 (B)    |
   | 2P 2V2 VERSUS       | 2 Outfield (Tanpa GK)   | Tidak | P1 + AI vs P2 + AI      |
   | 2P 3V3 VERSUS       | 2 Outfield + 1 GK       |  Ya   | P1 + AI vs P2 + AI (+GK)|
+  | 2P 4V4 VERSUS       | 3 Outfield + 1 GK (XL)  |  Ya   | P1+2 AI vs P2+2 AI (+GK)|
   | 2P 2V2 CO-OP        | 2 Outfield (Tanpa GK)   | Tidak | P1 & P2 satu tim vs 2 AI|
   | 2P 3V3 CO-OP        | 2 Outfield + 1 GK       |  Ya   | P1 & P2 + GK vs 2 AI+GK |
+  | 2P 4V4 CO-OP        | 3 Outfield + 1 GK (XL)  |  Ya   | P1+P2+1 AI vs 3 AI + GK |
   | PRACTICE SANDBOX    | 1 Outfield + GK (+Bek*) |  Ya   | P1 bebas latihan        |
   +---------------------+-------------------------+-------+-------------------------+
   * Catatan Sandbox: Bek bertahan Tim B bisa dinyalakan/dimatikan kapan saja via [T].
+  * Catatan 4V4: Seluruh mode 4V4 (1 GK + 3 Outfield) otomatis memakai STADIUM XL.
 
-  Fokus Pemain & Bantuan Bot (Mode 2v2 & 3v3):
+  Fokus Pemain & Bantuan Bot (Mode 2v2, 3v3 & 4v4):
   - Tanpa Auto-Switch: Kendali P1 tetap fokus penuh pada 1 pemain yang sama sepanjang
     laga (tidak pernah berpindah otomatis agar pemain tidak bingung).
   - Rekan Bot Cerdas: Pemain rekan AI & kiper otomatis membantu bertahan (menutup
@@ -95,6 +101,9 @@
   1. DRIBBLE + TACKLE (Default - Direkomendasikan)
      - Menyentuh bola bebas otomatis menempelkan bola di kaki depan pemain (dribble
        pocket). Kecepatan lari saat menggiring adalah ~94% agar tetap lincah.
+     - Panah Arah Tembakan (Shot Aim Arrow): Muncul otomatis saat menggiring atau
+       mengisi Power Shot. Panah memanjang sesuai tenaga dan berubah EMAS + titik
+       bidik saat arah tembakan mengunci ke mulut gawang lawan (Goal Aim Assist).
      - Cocok untuk menggiring zig-zag, menahan bola, mencari ruang, dan mengumpan.
      - Merebut Bola (Steal): Lakukan Dash ke arah pembawa bola lawan untuk membuat
        lawan stun (0.36 detik) sekaligus mencuri bola ke penguasaan Anda.
@@ -117,15 +126,27 @@
   +------------------------+--------------------+------------------+-----------------+
   | Gerak (8 Arah)         | WASD / Panah       | WASD             | Tombol Panah    |
   | Kick / Tahan Power     | Space / J / Enter  | Space / J        | Enter / Numpad1 |
-  | Dash / Tackle / Steal  | Shift / K          | Left Shift / K   | RCtrl / RShift  |
+  | Dash / Tackle / Feint  | Shift / K          | Left Shift / K   | RCtrl / RShift  |
   |                        |                    |                  | atau Numpad 2   |
-  | Switch Pemain (2v2/3v3)| Q / L              | Q / L            | Numpad 0 / "/"  |
+  | Smart Pass (1-2 Run)   | E / U              | E / U            | "." / Numpad 3  |
+  | Fever Blitz (100% Bar) | C / R (saat laga)  | C / R            | "\" / Numpad .  |
+  | Taktik Tim (2v2-4v4)   | Tab / Angka 1-3    | Tab / Angka 1-3  | O / "]"         |
+  | Switch Pemain (2v2-4v4)| Q / L              | Q / L            | Numpad 0 / "/"  |
   +------------------------+--------------------+------------------+-----------------+
 
   B. Gamepad & Mobile Touch Mode (Menu/Pause: [V] PAD: AUTO / MOBILE / PC)
-  - Gamepad (Slot 1 & 2) : Stick Kiri / D-Pad = Gerak | Tombol A/X = Kick |
-                           Tombol B/RB = Dash/Tackle | Tombol Y/LB = Switch |
-                           Start = Pause.
+  - Controller Eksternal (USB / Bluetooth, Xbox / PlayStation / Switch / Generic):
+    * Koneksi Instan : Colok USB/OTG atau pair Bluetooth lalu tekan tombol apa saja di
+                       controller; nama pad & banner notif muncul otomatis di layar.
+    * Analog 360 Mulus: Deadzone radial (0.14) tanpa snap kaku sumbu X/Y, dukungan
+                       kecepatan dribel proporsional (miring sedikit = jalan pelan,
+                       penuh = sprint), traksi belokan responsif, & fallback POV hat.
+    * Mapping (Slot 1 & 2): Stick Kiri / D-Pad = Gerak & Navigasi Menu | A / RT = Kick
+                       (Tahan Power) & Confirm | B / LT = Dash/Tackle/Feint & Back |
+                       X = Smart Pass | Y = Switch Pemain | LB = Taktik (Bal/Atk/Def)
+                       RB = Fever Blitz! | Start = Pause | Haptic Rumble aktif.
+    * Mobile + Gamepad: Di mode VIEW: AUTO, jika controller eksternal terhubung maka
+                       tombol sentuh otomatis tersembunyi agar layar penuh bersih!
   - Mode Mobile (AUTO / MOBILE / PC):
     * AUTO mendeteksi perangkat sentuh/HP secara otomatis. Pengguna PC/Desktop juga
       bisa memaksa tampilan Mobile lewat tombol [V] di Main Menu atau menu Pause.
@@ -138,8 +159,9 @@
                         kunci orientasi Landscape otomatis; iOS Safari memakai mode
                         viewport penuh + PWA manifest.
     * Tombol Khusus Mobile: Analog Joystick 360, KICK (bar daya charge langsung),
-                        TACKLE/DASH dinamis, SWITCH (2v2/3v3), II PAUSE, SFX, VIEW,
-                        [ ] FULL, SKIP REPLAY >>, dan bar Sandbox (FEED/BALL/AI BEK).
+                        TACKLE/FEINT dinamis (otomatis jadi FEINT saat bawa bola),
+                        PASS, FEVER (menyala saat 100%), SWITCH, pill TAC,
+                        II PAUSE, SFX, VIEW, [ ] FULL, SKIP REPLAY >>, & bar Sandbox.
 
   C. Tombol Menu & Utilitas
   - Panah / WASD         : Pindah baris menu & ubah nilai pengaturan.
@@ -190,23 +212,50 @@
        kecepatan maksimum bola naik sementara (0.48 detik), muncul jejak partikel
        cyan-emas, efek hitstop singkat, suara khusus, serta callout "ONE-TIMER!".
 
-  4. Dash, Tackle & Ball Steal
+  4. Dash, Tackle, Body Feint & Ball Steal
      - Dash mendorong pemain cepat selama 0.17 detik (cooldown dasar 1.2 detik).
-     - Menabrak lawan yang sedang menggiring bola membuat lawan STUN 0.36 detik,
-       terpental, dan bola langsung pindah ke kaki penjegel (callout "STEAL!").
+     - Skill Dribble / Body Feint: Menekan Dash saat sedang membawa bola di mode
+       Dribble memicu gerakan step-over zig-zag sambil menjaga bola menempel di
+       kaki. Jika lawan melakukan Dash-Tackle ke arah kita saat Feint aktif,
+       kita lolos tanpa stun (callout "ANKLE BREAKER!") sementara penjegel
+       kehilangan keseimbangan sejenak.
+     - Menabrak lawan tanpa Feint saat mereka membawa bola membuat lawan STUN 0.36
+       detik dan bola berpindah ke kaki penjegel (callout "STEAL!").
      - Menabrak bola lepas saat Dash menghasilkan sapuan tajam (sliding poke).
 
-  5. Penyelamatan Kiper & Goal-Box Save
+  5. Smart Teammate Pass & Give-and-Go ([E] / Pad X / Mobile PASS)
+     - Dalam mode 2v2, 3v3 & 4v4, lingkaran bidik cyan otomatis menandai rekan tim
+       terbaik sesuai arah pandang & ruang depan.
+     - Menekan tombol Pass langsung melepas umpan menyusur tanah yang akurat ke
+       arah lari rekan (tanpa dibelokkan ke gawang), diikuti dorongan momentum
+       maju (Give-and-Go) agar pengumpan siap melakukan lari 1-2.
+     - Bot rekan di mode 3v3 & 4v4 juga aktif mengumpan ke rekan yang terbuka.
+
+  6. Fever Blitz & Super Strike Gauge ([C] / Pad RB / Mobile FEVER)
+     - Bar FEV Tim A & B di HUD atas terisi hingga 100% dari aksi di lapangan
+       (umpan, tembakan, one-timer, feint dodge, save kiper, tekel mencuri bola,
+       serta bonus comeback saat kebobolan).
+     - Saat penuh (MAX!/FEV!), aktifkan Fever selama 4.5 detik: kecepatan lari
+       +20%, cooldown Dash -45%, tenaga tembak +18%, daya tahan stun meningkat,
+       serta seluruh tendangan berubah menjadi FEVER STRIKE berjejak api emas
+       dengan batas kecepatan lebih tinggi dan benturan parri kiper lebih keras!
+
+  7. Quick Team Tactics (2v2 / 3v3 / 4v4: [Tab] / [1-3] / Pad LB / Mobile TAC)
+     - Ganti formasi AI rekan kapan saja tanpa pause:
+       * BALANCED : Keseimbangan serangan sayap dan blok tengah standar.
+       * ATTACK+  : Tekanan pressing tinggi & rekan bot agresif maju overlap.
+       * DEFEND+  : Barisan bek AI merapat menjaga koridor kotak penalti sendiri.
+
+  8. Penyelamatan Kiper & Goal-Box Save
      - Kiper AI membaca arah bola, memprediksi pantulan dinding, dan menghalau ke
        arah sayap.
      - Blok kiper atas tembakan >= 115 px/s atau blok pemain bertahan di dekat area
        kotak gawang atas tembakan >= 150 px/s memicu callout "GREAT SAVE!".
 
-  6. Highlight Callouts & Instant Replay
-     - Callout mengambang di lapangan: ONE-TIMER!, BANK SHOT! (gol <= 1.35s usai
-       pantulan dinding), ROCKET! (tembakan >= 270 px/s atau power >= 0.78),
-       TOP BIN! (masuk ke sudut atas/bawah gawang), GREAT SAVE!, STEAL!, CLANG!
-       (membentur tiang gawang).
+  9. Highlight Callouts & Instant Replay
+     - Callout mengambang: FEVER STRIKE!, ANKLE BREAKER!, TEAM FEVER!, ONE-TIMER!,
+       BANK SHOT! (gol <= 1.35s usai pantulan dinding), ROCKET!, TOP BIN!, GREAT
+       SAVE!, STEAL!, dan CLANG! (membentur tiang gawang).
      - Instant Replay: Gol spektakuler pada laga reguler/cup otomatis memutar
        rekaman 3 detik terakhir (180 frame @ 60Hz) dengan bingkai "REC / REPLAY".
 
@@ -239,8 +288,8 @@
   | LARGE (1.8X AREA)  | 1.35x Sisi | 1.15x       | ~1.8x luas total, ruang sayap    |
   |                    | (~1.8x)    | Lebar       | lebih lega + kamera pengikut.    |
   +--------------------+------------+-------------+----------------------------------+
-  | STADIUM XL (2.7X)  | 1.65x Sisi | 1.25x       | ~2.7x luas total, ideal 2v2/3v3  |
-  |                    | (~2.7x)    | Lebar       | atau umpan panjang + kamera.     |
+  | STADIUM XL (2.7X)  | 1.65x Sisi | 1.25x       | ~2.7x luas total, wajib u/ 4v4   |
+  |                    | (~2.7x)    | Lebar       | & ideal umpan panjang + kamera.  |
   +--------------------+------------+-------------+----------------------------------+
 
   Catatan Kamera Lapangan Besar (Large & Stadium XL):
@@ -272,7 +321,7 @@
 [8] TURNAMEN DERBY CUP & DAFTAR PERK
 ======================================================================================
 
-  Mode DERBY CUP (1V1, 2V2, atau 3V3) menantang Anda melewati 3 babak beruntun:
+  Mode DERBY CUP (1V1, 2V2, 3V3, atau 4V4) menantang Anda melewati 3 babak beruntun:
 
     Babak 1 : QUARTER FINAL  -> vs VILLAGE FC       (Rookie AI)  @ Classic Stadium
     Babak 2 : SEMI FINAL     -> vs ALLEY SHARKS     (Pro AI)     @ Concrete Alley
@@ -332,5 +381,36 @@
     (Banana Curve) ke pojok tiang gawang.
   - Gunakan mode PRACTICE SANDBOX: tekan [F] lalu [Space] untuk menguasai timing
     One-Timer dalam 1 menit!
+
+
+======================================================================================
+[11] ONLINE MULTIPLAYER P2P (WEBRTC + VERCEL SIGNALING)
+======================================================================================
+
+  No-Out Derby mendukung pertandingan Online jarak jauh secara langsung antar
+  browser via WebRTC DataChannel (Host-Authoritative 60Hz) dengan bantuan
+  Vercel Serverless Function (/api/rooms) + Upstash Redis untuk tukar kode room.
+
+  1. Cara Main Online (Host & Guest)
+     - Tekan [O] atau klik tombol ONLINE P2P [O] di Main Menu.
+     - HOST ROOM: Pilih format (1V1 VS, 2V2 VS, 3V3 VS, 4V4 VS, 2V2 CO-OP,
+       3V3 CO-OP, atau 4V4 CO-OP), klik CREATE ROOM, lalu bagikan Kode Room
+       4 huruf/angka atau tombol COPY INVITE (?room=XXXX) ke teman.
+     - JOIN ROOM: Masukkan kode 4 karakter di tab JOIN ROOM (atau buka langsung
+       tautan ?room=XXXX). Preview konfigurasi arena Host tampil sebelum masuk.
+     - Baik Host maupun Guest memakai kontrol penuh Solo masing-masing (WASD atau
+       Panah, Gamepad 1, maupun Mobile Touch Pad) + hotkey taktik [Tab] / [1]-[3].
+     - Tombol Pause [ESC]/[P] membuka menu lokal tanpa membekukan laga lawan.
+
+  2. Arsitektur Jaringan & Kebutuhan Deploy Vercel
+     - Dual DataChannel: channel unreliable (ordered: false, maxRetransmits: 0)
+       untuk input & snapshot 60Hz berlatensi rendah + interpolasi Guest 42ms,
+       serta channel reliable untuk ping RTT, sinyal rematch & status putus.
+     - Endpoint /api/rooms (api/rooms.ts) menyimpan SDP offer/answer & trickle
+       ICE candidates di Upstash Redis dengan TTL 180 detik.
+     - Env var yang dibaca: UPSTASH_REDIS_REST_URL & UPSTASH_REDIS_REST_TOKEN
+       (atau KV_REST_API_URL & KV_REST_API_TOKEN dari Vercel Storage). Bila
+       belum dipasang, produksi mengembalikan 503 REDIS_NOT_CONFIGURED (saat
+       pengembangan lokal `npm run dev`, middleware Vite menyediakan store dev).
 
 ======================================================================================

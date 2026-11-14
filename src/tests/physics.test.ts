@@ -61,7 +61,6 @@ function makePlayer(overrides: Partial<Player> = {}): Player {
     aiWantCharge: false,
     aiChargeTarget: 0,
     aiWantDash: false,
-    shirtNumber: 9,
     ...overrides,
   };
 }

@@ -7,6 +7,7 @@ export interface MobileEnvMetrics {
   coarsePointer: boolean;
   viewportWidth: number;
   viewportHeight: number;
+  hasExternalGamepad?: boolean;
 }
 
 export interface CanvasDisplayMetrics {
@@ -21,6 +22,7 @@ export interface TouchHudVisibility {
   showMenuBar: boolean;
   showGameplayControls: boolean;
   showSwitchButton: boolean;
+  showTacticButton: boolean;
   showReplaySkip: boolean;
   showSandboxBar: boolean;
 }
@@ -49,6 +51,7 @@ export function getDisplayModeLabel(mode: DisplayMode = 'auto'): string {
 export function shouldShowMobilePad(displayMode: DisplayMode, env: MobileEnvMetrics): boolean {
   if (displayMode === 'mobile') return true;
   if (displayMode === 'desktop') return false;
+  if (env.hasExternalGamepad) return false;
   if (env.coarsePointer) return true;
   return env.hasTouch && (env.viewportWidth <= 1024 || env.viewportHeight <= 640);
 }
@@ -115,7 +118,8 @@ export function getTouchHudVisibility(
   phase: MatchPhase,
   isSandbox: boolean,
   canSwitch: boolean,
-  mobileActive: boolean
+  mobileActive: boolean,
+  canTactics = false
 ): TouchHudVisibility {
   const isGameplayPhase =
     phase === 'KICKOFF' ||
@@ -130,6 +134,7 @@ export function getTouchHudVisibility(
       showMenuBar: mobileActive && !isGameplayPhase,
       showGameplayControls: false,
       showSwitchButton: false,
+      showTacticButton: false,
       showReplaySkip: false,
       showSandboxBar: false,
     };
@@ -141,6 +146,7 @@ export function getTouchHudVisibility(
     showMenuBar: false,
     showGameplayControls: !isReplay,
     showSwitchButton: !isReplay && canSwitch,
+    showTacticButton: !isReplay && canTactics && !isSandbox,
     showReplaySkip: isReplay,
     showSandboxBar: isSandbox && (phase === 'PLAYING' || phase === 'KICKOFF'),
   };

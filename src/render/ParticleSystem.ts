@@ -24,6 +24,9 @@ interface Shockwave {
   maxLife: number;
 }
 
+const MAX_PARTICLES = 420;
+const MAX_SHOCKWAVES = 12;
+
 export class ParticleSystem {
   private particles: PixelParticle[] = [];
   private shockwaves: Shockwave[] = [];
@@ -40,9 +43,24 @@ export class ParticleSystem {
     this.shockwaves.length = 0;
   }
 
+  /** Pushes a particle, dropping the oldest ones so burst-heavy mutators stay bounded. */
+  private pushParticle(p: PixelParticle): void {
+    if (this.particles.length >= MAX_PARTICLES) {
+      this.particles.splice(0, this.particles.length - MAX_PARTICLES + 1);
+    }
+    this.particles.push(p);
+  }
+
+  private pushShockwave(s: Shockwave): void {
+    if (this.shockwaves.length >= MAX_SHOCKWAVES) {
+      this.shockwaves.shift();
+    }
+    this.shockwaves.push(s);
+  }
+
   emitDust(x: number, y: number, count = 2, icy = false): void {
     for (let i = 0; i < count; i++) {
-      this.particles.push({
+      this.pushParticle({
         x: x + (Math.random() - 0.5) * 6,
         y: y + (Math.random() - 0.5) * 3,
         vx: (Math.random() - 0.5) * 26,
@@ -57,7 +75,7 @@ export class ParticleSystem {
   }
 
   emitBallTrail(x: number, y: number, color: string, size = 2): void {
-    this.particles.push({
+    this.pushParticle({
       x: x + (Math.random() - 0.5) * 3,
       y: y + (Math.random() - 0.5) * 3,
       vx: (Math.random() - 0.5) * 12,
@@ -74,7 +92,7 @@ export class ParticleSystem {
     for (let i = 0; i < count; i++) {
       const ang = Math.random() * Math.PI * 2;
       const spd = 45 + Math.random() * 95;
-      this.particles.push({
+      this.pushParticle({
         x,
         y,
         vx: Math.cos(ang) * spd,
@@ -96,7 +114,7 @@ export class ParticleSystem {
     for (let i = 0; i < 42; i++) {
       const ang = Math.random() * Math.PI * 2;
       const spd = 35 + Math.random() * 150;
-      this.particles.push({
+      this.pushParticle({
         x,
         y,
         vx: Math.cos(ang) * spd,
@@ -108,7 +126,7 @@ export class ParticleSystem {
         gravity: 120,
       });
     }
-    this.shockwaves.push({
+    this.pushShockwave({
       x,
       y,
       radius: 4,
@@ -124,7 +142,7 @@ export class ParticleSystem {
     for (let i = 0; i < 36; i++) {
       const ang = Math.random() * Math.PI * 2;
       const spd = 65 + Math.random() * 145;
-      this.particles.push({
+      this.pushParticle({
         x,
         y,
         vx: Math.cos(ang) * spd,
@@ -136,7 +154,7 @@ export class ParticleSystem {
         gravity: 30,
       });
     }
-    this.shockwaves.push({
+    this.pushShockwave({
       x,
       y,
       radius: 6,
@@ -150,7 +168,7 @@ export class ParticleSystem {
   emitOneTimerBurst(x: number, y: number): void {
     this.emitSparks(x, y, PALETTE.iceCyan, 10);
     this.emitSparks(x, y, PALETTE.gold, 8);
-    this.shockwaves.push({
+    this.pushShockwave({
       x,
       y,
       radius: 3,
@@ -163,7 +181,7 @@ export class ParticleSystem {
 
   emitSaveBurst(x: number, y: number): void {
     this.emitSparks(x, y, PALETTE.iceCyan, 10);
-    this.shockwaves.push({
+    this.pushShockwave({
       x,
       y,
       radius: 3,
@@ -178,16 +196,51 @@ export class ParticleSystem {
     for (const ev of events) {
       switch (ev.type) {
         case 'kick':
-          if (ev.isOneTimer) {
+          if (ev.isFeverShot) {
+            this.emitSparks(ev.x, ev.y, PALETTE.amber, 14);
+            this.pushShockwave({
+              x: ev.x,
+              y: ev.y,
+              radius: 3,
+              maxRadius: 30,
+              color: PALETTE.gold,
+              life: 0.24,
+              maxLife: 0.24,
+            });
+          } else if (ev.isOneTimer) {
             this.emitOneTimerBurst(ev.x, ev.y);
           } else {
             this.emitSparks(
               ev.x,
               ev.y,
-              ev.power >= 0.75 ? PALETTE.gold : PALETTE.pureWhite,
-              ev.power >= 0.75 ? 10 : 4
+              ev.isPass ? PALETTE.iceCyan : ev.power >= 0.75 ? PALETTE.gold : PALETTE.pureWhite,
+              ev.isPass ? 4 : ev.power >= 0.75 ? 10 : 4
             );
           }
+          break;
+        case 'feint_dodge':
+          this.emitSparks(ev.x, ev.y, PALETTE.iceCyan, 10);
+          this.pushShockwave({
+            x: ev.x,
+            y: ev.y,
+            radius: 2,
+            maxRadius: 20,
+            color: PALETTE.iceCyan,
+            life: 0.2,
+            maxLife: 0.2,
+          });
+          break;
+        case 'fever_activate':
+          this.emitSparks(ev.x, ev.y, PALETTE.gold, 16);
+          this.pushShockwave({
+            x: ev.x,
+            y: ev.y,
+            radius: 4,
+            maxRadius: 38,
+            color: PALETTE.amber,
+            life: 0.3,
+            maxLife: 0.3,
+          });
           break;
         case 'wall_bounce':
           if (ev.isPinball || ev.speed > 130) {

@@ -52,14 +52,18 @@ const VALID_MODES = new Set<GameMode>([
   '1v1_ai',
   '2v2_ai',
   '3v3_ai',
+  '4v4_ai',
   'derby_cup_1v1',
   'derby_cup_2v2',
   'derby_cup_3v3',
+  'derby_cup_4v4',
   '1v1_local',
   '2v2_local',
   '3v3_local',
+  '4v4_local',
   '2v2_coop',
   '3v3_coop',
+  '4v4_coop',
   'practice_sandbox',
 ]);
 const VALID_ARENAS = new Set<ArenaId>(ARENA_LIST);
@@ -262,6 +266,10 @@ export class CareerRecordsStore {
             typeof parsed.mutatorsEnabled === 'boolean'
               ? parsed.mutatorsEnabled
               : fallbackConfig.mutatorsEnabled,
+          replayEnabled:
+            typeof parsed.replayEnabled === 'boolean'
+              ? parsed.replayEnabled
+              : (fallbackConfig.replayEnabled ?? true),
         },
         muted: Boolean(parsed.muted),
       };
@@ -279,13 +287,14 @@ export class CareerRecordsStore {
           mode: config.mode,
           arena: config.arena,
           pitchSize: config.pitchSize ?? 'standard',
-          controlStyle: config.controlStyle ?? 'dribble',
+          controlStyle: config.controlStyle ?? 'classic',
           displayMode: config.displayMode ?? 'auto',
           teamAKit: config.teamAKit ?? 'garuda',
           teamBKit: config.teamBKit ?? 'cyber',
           difficulty: config.difficulty,
           mutatorsEnabled: config.mutatorsEnabled,
           durationSeconds: config.durationSeconds,
+          replayEnabled: config.replayEnabled ?? true,
           muted,
         })
       );

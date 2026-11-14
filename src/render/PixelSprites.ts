@@ -1,5 +1,6 @@
-import { MutatorType, PlayerAnimState, Team, TeamKitId } from '../types.ts';
-import type { ReplayPlayerSnapshot } from '../engine/ReplayBuffer.ts';
+import { ARENA_CONSTANTS, ArenaBounds, MutatorType, PlayerAnimState, TeamKitId } from '../types.ts';
+import { resolveShotAim } from '../engine/ArenaGeometry.ts';
+import type { ReplayBallSnapshot, ReplayPlayerSnapshot } from '../engine/ReplayBuffer.ts';
 import { PALETTE } from './Palette.ts';
 import { getTeamKit } from './TeamKits.ts';
 
@@ -34,12 +35,29 @@ export function drawPixelPlayer(
   ctx.fillRect(px - Math.floor(shadowW / 2), py - 2, shadowW, 4);
   ctx.fillRect(px - Math.floor(shadowW / 2) + 1, py - 3, shadowW - 2, 6);
 
+  // Fever aura ring under feet
+  if (p.feverActive) {
+    const pulse = Math.floor(p.animTime * 16) % 2 === 0;
+    ctx.strokeStyle = pulse ? PALETTE.gold : PALETTE.amber;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(px, py, 9, 4, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
   // Subtle active player ring under feet
   if (p.humanSlot !== null) {
     ctx.fillStyle = p.humanSlot === 1 ? PALETTE.gold : PALETTE.iceCyan;
     ctx.fillRect(px - 6, py + 2, 12, 1);
     ctx.fillRect(px - 7, py + 1, 2, 1);
     ctx.fillRect(px + 5, py + 1, 2, 1);
+  }
+
+  // Quick Skill Feint phantom blur behind carrier
+  if ((p.feintTimer ?? 0) > 0 && !isKeeper) {
+    const phantomX = Math.round(px - p.facingX * 4);
+    ctx.fillStyle = 'rgba(115, 239, 255, 0.36)';
+    ctx.fillRect(phantomX - 4, py - 14, 8, 12);
   }
 
   // Frame selection for 4 states
@@ -210,6 +228,170 @@ export function drawPixelPlayer(
   ctx.restore();
 }
 
+/**
+ * Draws a crisp directional aim arrow showing the exact resolved shot trajectory while
+ * dribbling or charging a kick. Turns gold when lined up inside the opponent goalmouth.
+ */
+export function drawShotAimArrow(
+  ctx: CanvasRenderingContext2D,
+  player: ReplayPlayerSnapshot,
+  anchorBall: ReplayBallSnapshot | null,
+  bounds: ArenaBounds,
+  animClock = 0
+): void {
+  const originX = anchorBall ? anchorBall.x : player.x + player.facingX * 11;
+  const originY = anchorBall ? anchorBall.y : player.y + player.facingY * 11;
+  const ballRadius = anchorBall ? anchorBall.radius : ARENA_CONSTANTS.BASE_BALL_RADIUS;
+  const aim = resolveShotAim(
+    player.x,
+    player.y,
+    player.facingX,
+    player.facingY,
+    player.team,
+    bounds,
+    originX,
+    originY
+  );
+
+  const chargeRatio = player.isCharging
+    ? Math.min(1, player.chargeTime / ARENA_CONSTANTS.MAX_CHARGE_TIME)
+    : 0;
+  const pulseFlash = chargeRatio >= 0.8 && Math.floor(animClock * 16) % 2 === 0;
+  const arrowColor = pulseFlash
+    ? PALETTE.dangerRed
+    : aim.isGoalLocked
+      ? PALETTE.gold
+      : chargeRatio >= 0.45
+        ? PALETTE.amber
+        : player.humanSlot === 1
+          ? PALETTE.pureWhite
+          : PALETTE.iceCyan;
+
+  const startDist = ballRadius + 4;
+  const arrowLen = 22 + chargeRatio * 20;
+  const headLen = 6.5 + chargeRatio * 2;
+  const headHalfW = 4.2 + chargeRatio * 0.9;
+
+  const sx = originX + aim.x * startDist;
+  const sy = originY + aim.y * startDist;
+  const shaftEnd = startDist + arrowLen - headLen + 1;
+  const ex = originX + aim.x * shaftEnd;
+  const ey = originY + aim.y * shaftEnd;
+  const tipDist = startDist + arrowLen;
+  const tipX = originX + aim.x * tipDist;
+  const tipY = originY + aim.y * tipDist;
+  const baseX = originX + aim.x * (tipDist - headLen);
+  const baseY = originY + aim.y * (tipDist - headLen);
+  const perpX = -aim.y;
+  const perpY = aim.x;
+
+  ctx.save();
+
+  // Dotted sightline pips ahead of the arrowhead when goal-locked or charging
+  if (aim.isGoalLocked || chargeRatio > 0.15) {
+    const pipCount = aim.isGoalLocked ? 3 : 2;
+    for (let i = 1; i <= pipCount; i++) {
+      const pipDist = tipDist + i * 8;
+      const px = originX + aim.x * pipDist;
+      const py = originY + aim.y * pipDist;
+      if (
+        px < bounds.left - bounds.goalDepth + 2 ||
+        px > bounds.right + bounds.goalDepth - 2 ||
+        py < bounds.top + 2 ||
+        py > bounds.bottom - 2
+      ) {
+        break;
+      }
+      const rx = Math.round(px);
+      const ry = Math.round(py);
+      ctx.globalAlpha = 0.92 - i * 0.16;
+      ctx.fillStyle = PALETTE.inkBlack;
+      ctx.fillRect(rx - 1, ry - 1, 3, 3);
+      ctx.fillStyle = arrowColor;
+      ctx.fillRect(rx, ry, 2, 2);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Dark outline pass (ensures crisp legibility on green turf, concrete, rooftop, and ice)
+  ctx.strokeStyle = PALETTE.inkBlack;
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'butt';
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+
+  ctx.fillStyle = PALETTE.inkBlack;
+  ctx.lineWidth = 2.5;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(baseX + perpX * headHalfW, baseY + perpY * headHalfW);
+  ctx.lineTo(baseX - perpX * headHalfW, baseY - perpY * headHalfW);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.fill();
+
+  // Bright core shaft + arrowhead pass
+  ctx.strokeStyle = arrowColor;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+
+  ctx.fillStyle = arrowColor;
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(baseX + perpX * headHalfW, baseY + perpY * headHalfW);
+  ctx.lineTo(baseX - perpX * headHalfW, baseY - perpY * headHalfW);
+  ctx.closePath();
+  ctx.fill();
+
+  // Crisp 1-2px bright core accent near arrowhead base while charging or goal-locked
+  if (aim.isGoalLocked || chargeRatio > 0.25) {
+    const cx = Math.round(originX + aim.x * (tipDist - headLen * 0.55));
+    const cy = Math.round(originY + aim.y * (tipDist - headLen * 0.55));
+    ctx.fillStyle = PALETTE.pureWhite;
+    ctx.fillRect(cx, cy, 1, 1);
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Draws a pulsing cyan target marker showing where a smart teammate pass will lead.
+ */
+export function drawPassTargetRing(
+  ctx: CanvasRenderingContext2D,
+  targetX: number,
+  targetY: number,
+  animClock = 0
+): void {
+  const tx = Math.round(targetX);
+  const ty = Math.round(targetY);
+  const expand = Math.sin(animClock * 10) > 0 ? 1 : 0;
+  const r = 7 + expand;
+  ctx.save();
+  ctx.strokeStyle = PALETTE.inkBlack;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(tx, ty, r + 1, Math.round((r + 1) * 0.65), 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = PALETTE.iceCyan;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(tx, ty, r, Math.round(r * 0.65), 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Small center pip showing the exact pass lead point
+  ctx.fillStyle = PALETTE.iceCyan;
+  ctx.fillRect(tx - 1, ty - 1, 2, 2);
+  ctx.restore();
+}
+
 export function drawPixelBall(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -219,11 +401,20 @@ export function drawPixelBall(
   rollAngle: number,
   hotPotatoTimer: number,
   hotPotatoActive: boolean,
-  isCarried = false
+  isCarried = false,
+  isFeverBall = false
 ): void {
   const bx = Math.round(x);
   const shadowY = Math.round(y + radius * 0.4);
   const drawY = Math.round(y - z * 0.65);
+
+  if (isFeverBall) {
+    ctx.strokeStyle = PALETTE.amber;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(bx, drawY, Math.round(radius + 2.5), 0, Math.PI * 2);
+    ctx.stroke();
+  }
 
   if (isCarried) {
     ctx.strokeStyle = PALETTE.gold;
@@ -334,8 +525,4 @@ export function drawMutatorIcon(ctx: CanvasRenderingContext2D, type: MutatorType
       ctx.fillRect(ix + 6, iy + 5, 4, 4);
       break;
   }
-}
-
-export function getTeamColor(team: Team): string {
-  return team === 'A' ? PALETTE.teamAPrimary : PALETTE.teamBPrimary;
 }

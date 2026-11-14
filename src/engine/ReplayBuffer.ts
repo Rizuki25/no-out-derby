@@ -10,6 +10,7 @@ export interface ReplayBallSnapshot {
   untouchedTimer: number;
   carrierId?: number | null;
   isExtraBall?: boolean;
+  feverTimer?: number;
 }
 
 export interface ReplayPlayerSnapshot {
@@ -27,6 +28,8 @@ export interface ReplayPlayerSnapshot {
   isCharging: boolean;
   chargeTime: number;
   dashCooldown: number;
+  feintTimer?: number;
+  feverActive?: boolean;
 }
 
 export interface ReplayFrame {
@@ -49,6 +52,8 @@ export class ReplayBuffer {
   private frames: ReplayFrame[] = [];
   private playbackFrames: ReplayFrame[] = [];
   private playbackCursor = 0;
+  private remoteFrame: ReplayFrame | null = null;
+  private remoteProgress = 0;
   public activeGoalTag = 'SPECTACULAR GOAL!';
   public scoringTeam: Team = 'A';
 
@@ -59,6 +64,21 @@ export class ReplayBuffer {
   clearPlayback(): void {
     this.playbackFrames = [];
     this.playbackCursor = 0;
+    this.remoteFrame = null;
+    this.remoteProgress = 0;
+  }
+
+  /** Mirrors replay frame and progress streamed by an online host during Goal Replay. */
+  setRemotePlayback(
+    frame: ReplayFrame | null,
+    progress: number,
+    goalTag: string,
+    scoringTeam: Team
+  ): void {
+    this.remoteFrame = frame;
+    this.remoteProgress = progress;
+    this.activeGoalTag = goalTag;
+    this.scoringTeam = scoringTeam;
   }
 
   recordFrame(
@@ -94,6 +114,7 @@ export class ReplayBuffer {
         untouchedTimer: b.untouchedTimer,
         carrierId: b.carrierId ?? null,
         isExtraBall: b.isExtraBall,
+        feverTimer: b.feverTimer ?? 0,
       })),
       players: players.map((p) => ({
         id: p.id,
@@ -110,6 +131,8 @@ export class ReplayBuffer {
         isCharging: p.isCharging,
         chargeTime: p.chargeTime,
         dashCooldown: p.dashCooldown,
+        feintTimer: p.feintTimer ?? 0,
+        feverActive: Boolean(p.feverActive),
       })),
     };
 
@@ -145,12 +168,14 @@ export class ReplayBuffer {
   }
 
   getCurrentPlaybackFrame(): ReplayFrame | null {
+    if (this.remoteFrame) return this.remoteFrame;
     if (this.playbackFrames.length === 0) return null;
     const idx = Math.min(this.playbackFrames.length - 1, Math.floor(this.playbackCursor));
     return this.playbackFrames[idx] ?? null;
   }
 
   getPlaybackProgress(): number {
+    if (this.remoteFrame) return Math.max(0, Math.min(1, this.remoteProgress));
     if (this.playbackFrames.length <= 1) return 1;
     return Math.min(1, this.playbackCursor / (this.playbackFrames.length - 1));
   }

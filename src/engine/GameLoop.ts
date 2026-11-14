@@ -12,7 +12,8 @@ export class GameLoop {
   constructor(
     private readonly onFixedUpdate: (dt: number) => void,
     private readonly onRender: () => void,
-    private readonly onRawTick?: (rawDt: number) => void
+    private readonly onRawTick?: (rawDt: number) => void,
+    private readonly onFrameEnd?: () => void
   ) {}
 
   start(): void {
@@ -32,6 +33,8 @@ export class GameLoop {
       if (this.hitstopTimer > 0) {
         this.hitstopTimer = Math.max(0, this.hitstopTimer - rawDt);
         this.onRender();
+        // Still close out the frame so buffered input edges are consumed exactly once.
+        this.onFrameEnd?.();
         this.rafId = requestAnimationFrame(tick);
         return;
       }
@@ -52,6 +55,7 @@ export class GameLoop {
       }
 
       this.onRender();
+      this.onFrameEnd?.();
       this.rafId = requestAnimationFrame(tick);
     };
     this.rafId = requestAnimationFrame(tick);

@@ -11,19 +11,24 @@ export type PitchSize = 'standard' | 'large' | 'xl';
 export type ControlStyle = 'classic' | 'dribble';
 export type DisplayMode = 'auto' | 'mobile' | 'desktop';
 export type TeamKitId = 'garuda' | 'cyber' | 'tarkam' | 'shadow' | 'street_lime' | 'sunset';
+export type TeamTactic = 'balanced' | 'attack' | 'defend';
 
 export type GameMode =
   | '1v1_ai'
   | '2v2_ai'
   | '3v3_ai'
+  | '4v4_ai'
   | 'derby_cup_1v1'
   | 'derby_cup_2v2'
   | 'derby_cup_3v3'
+  | 'derby_cup_4v4'
   | '1v1_local'
   | '2v2_local'
   | '3v3_local'
+  | '4v4_local'
   | '2v2_coop'
   | '3v3_coop'
+  | '4v4_coop'
   | 'practice_sandbox';
 export type AIDifficulty = 'rookie' | 'pro' | 'tarkam';
 export type MatchDurationOption = 60 | 90 | 120;
@@ -43,6 +48,7 @@ export interface TeamModifiers {
   spinMult: number;
   stunMult: number;
   kickReachBonus: number;
+  feverActive?: boolean;
 }
 
 export type MutatorType =
@@ -100,6 +106,8 @@ export interface Ball {
   carrierId?: number | null;
   /** Brief boosted speed & trail window after a One-Timer volley */
   oneTimerTimer?: number;
+  /** Remaining blazing trail window for a Fever Super Strike */
+  feverTimer?: number;
 }
 
 export interface Player {
@@ -131,6 +139,13 @@ export interface Player {
   kickContactCooldown: number;
   /** Brief cooldown before re-picking up ball in Dribble mode (after kicking or being tackled) */
   pickupCooldown?: number;
+  /** Active Skill Dribble / Body Feint window while carrying ball */
+  feintTimer?: number;
+  feintDir?: -1 | 1;
+  /** Internal swing flag distinguishing a smart teammate Pass from a Shot */
+  isPassSwing?: boolean;
+  /** True while the player's team has Fever Blitz active */
+  feverActive?: boolean;
   animState: PlayerAnimState;
   animTime: number;
   aiState: AIState;
@@ -140,8 +155,6 @@ export interface Player {
   aiWantCharge: boolean;
   aiChargeTarget: number;
   aiWantDash: boolean;
-  /** Visual jersey number (1-4) */
-  shirtNumber: number;
 }
 
 export interface PlayerInput {
@@ -151,6 +164,9 @@ export interface PlayerInput {
   kickJustReleased: boolean;
   dashJustPressed: boolean;
   switchJustPressed: boolean;
+  passJustPressed?: boolean;
+  feverJustPressed?: boolean;
+  tacticCycleJustPressed?: boolean;
 }
 
 export interface MatchConfig {
@@ -210,12 +226,19 @@ export type GameEvent =
       playerId: number;
       team: Team;
       isOneTimer?: boolean;
+      isPass?: boolean;
+      isFeverShot?: boolean;
+      /** False for keeper clears, passes, and dash pokes, which emit a kick sound but are not shot attempts. */
+      isShot?: boolean;
     }
   | { type: 'wall_bounce'; x: number; y: number; speed: number; isPinball: boolean }
   | { type: 'post_clang'; x: number; y: number; speed: number }
   | { type: 'save'; x: number; y: number; team: Team; speed: number }
   | { type: 'dash'; x: number; y: number; team: Team }
   | { type: 'tackle'; x: number; y: number; team: Team; stoleBall?: boolean }
+  | { type: 'feint_dodge'; x: number; y: number; team: Team; playerId: number }
+  | { type: 'fever_activate'; team: Team; x: number; y: number }
+  | { type: 'tactic_change'; team: Team; tactic: TeamTactic }
   | { type: 'goal'; scoringTeam: Team; x: number; y: number; isGoldenGoal: boolean; highlightTag?: string }
   | { type: 'hot_potato_tick'; x: number; y: number; urgency: number }
   | { type: 'hot_potato_boom'; x: number; y: number }
@@ -227,7 +250,6 @@ export type GameEvent =
 export interface PhysicsParams {
   ballFriction: number;
   wallRestitution: number;
-  arenaBaseRestitution: number;
   maxBallSpeed: number;
   ballRadius: number;
   ballMass: number;

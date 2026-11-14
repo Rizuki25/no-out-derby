@@ -54,7 +54,6 @@ function makePlayer(
     aiWantCharge: false,
     aiChargeTarget: 0,
     aiWantDash: false,
-    shirtNumber: id,
   };
 }
 

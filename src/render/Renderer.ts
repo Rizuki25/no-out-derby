@@ -1,17 +1,23 @@
 import {
   ArenaBounds,
   ArenaId,
+  ControlStyle,
   GameEvent,
   NATIVE_HEIGHT,
   NATIVE_WIDTH,
   TeamKitId,
 } from '../types.ts';
-import { getArenaOctagonVertices } from '../engine/ArenaGeometry.ts';
+import { getArenaOctagonVertices, resolvePassTarget } from '../engine/ArenaGeometry.ts';
 import type { ReplayBallSnapshot, ReplayFrame, ReplayPlayerSnapshot } from '../engine/ReplayBuffer.ts';
 import { MatchState } from '../game/MatchState.ts';
 import { PALETTE } from './Palette.ts';
 import { ParticleSystem } from './ParticleSystem.ts';
-import { drawPixelBall, drawPixelPlayer } from './PixelSprites.ts';
+import {
+  drawPassTargetRing,
+  drawPixelBall,
+  drawPixelPlayer,
+  drawShotAimArrow,
+} from './PixelSprites.ts';
 import { drawPixelText } from './PixelFont.ts';
 import { getTeamKit } from './TeamKits.ts';
 
@@ -44,6 +50,7 @@ export class Renderer {
   private camY = 0;
   private lastRawDt = 1 / 60;
   private lastBounds: ArenaBounds | null = null;
+  private eventBounds: ArenaBounds | null = null;
   private wasReplayFrame = false;
 
   constructor(private readonly particles: ParticleSystem) {
@@ -75,6 +82,7 @@ export class Renderer {
     this.camX = 0;
     this.camY = 0;
     this.lastBounds = null;
+    this.eventBounds = null;
     this.wasReplayFrame = false;
   }
 
@@ -84,10 +92,13 @@ export class Renderer {
     if (this.callouts.length >= 5) {
       this.callouts.shift();
     }
-    const minX = (this.lastBounds?.left ?? 36) + 14;
-    const maxX = (this.lastBounds?.right ?? NATIVE_WIDTH - 36) - 14;
-    const minY = (this.lastBounds?.top ?? 48) - 8;
-    const maxY = (this.lastBounds?.bottom ?? NATIVE_HEIGHT - 18) - 14;
+    // Prefer the bounds of the frame that produced the event; `lastBounds` is only updated at
+    // render time, so using it here would clamp callouts to the previous arena size.
+    const bounds = this.eventBounds ?? this.lastBounds;
+    const minX = (bounds?.left ?? 36) + 14;
+    const maxX = (bounds?.right ?? NATIVE_WIDTH - 36) - 14;
+    const minY = (bounds?.top ?? 48) - 8;
+    const maxY = (bounds?.bottom ?? NATIVE_HEIGHT - 18) - 14;
     this.callouts.push({
       text,
       x: Math.max(minX, Math.min(maxX, x)),
@@ -104,11 +115,17 @@ export class Renderer {
     this.shakeTimer = Math.max(this.shakeTimer, duration);
   }
 
-  handleEvents(events: GameEvent[]): void {
+  handleEvents(events: GameEvent[], bounds?: ArenaBounds): void {
+    if (bounds) {
+      this.eventBounds = bounds;
+    }
     for (const ev of events) {
       switch (ev.type) {
         case 'kick':
-          if (ev.isOneTimer) {
+          if (ev.isFeverShot) {
+            this.triggerShake(4.2, 0.18);
+            this.addCallout('FEVER STRIKE!', ev.x, ev.y, PALETTE.amber, 1.0);
+          } else if (ev.isOneTimer) {
             this.triggerShake(3.8, 0.16);
             this.addCallout('ONE-TIMER!', ev.x, ev.y, PALETTE.iceCyan);
           } else if (ev.power >= 0.78) {
@@ -117,6 +134,27 @@ export class Renderer {
             this.triggerShake(1.4, 0.08);
           }
           break;
+        case 'feint_dodge':
+          this.triggerShake(1.8, 0.08);
+          this.addCallout('ANKLE BREAKER!', ev.x, ev.y, PALETTE.iceCyan, 0.85);
+          break;
+        case 'fever_activate': {
+          const eb = this.eventBounds;
+          const cx = eb ? eb.centerX : NATIVE_WIDTH * 0.5;
+          const cy = eb ? eb.top + 38 : 64;
+          this.triggerShake(3.4, 0.2);
+          this.addCallout(`TEAM ${ev.team} FEVER!`, cx, cy, PALETTE.gold, 1.15);
+          break;
+        }
+        case 'tactic_change': {
+          const eb = this.eventBounds;
+          const cx = eb ? eb.centerX : NATIVE_WIDTH * 0.5;
+          const cy = eb ? eb.top + 24 : 52;
+          const label =
+            ev.tactic === 'attack' ? 'ATTACK+' : ev.tactic === 'defend' ? 'DEFEND+' : 'BALANCED';
+          this.addCallout(`TAC: ${label}`, cx, cy, PALETTE.iceCyan, 0.85);
+          break;
+        }
         case 'post_clang':
           this.triggerShake(3.0, 0.14);
           if (ev.speed >= 85) {
@@ -181,27 +219,47 @@ export class Renderer {
         if ((p.dashTimer > 0 || speed > 96) && Math.random() < (p.dashTimer > 0 ? 0.85 : 0.24)) {
           this.particles.emitDust(p.x, p.y, 1, icy);
         }
+        if (p.feverActive && Math.random() < 0.36) {
+          this.particles.emitBallTrail(
+            p.x + (Math.random() - 0.5) * 8,
+            p.y - 6 + (Math.random() - 0.5) * 8,
+            Math.random() < 0.5 ? PALETTE.gold : PALETTE.amber,
+            2
+          );
+        }
       }
       for (const b of match.balls) {
         const bSpeed = Math.hypot(b.vx, b.vy);
         const isOneTimer = (b.oneTimerTimer ?? 0) > 0;
-        if (isOneTimer || bSpeed > 205 || match.params.pinballActive) {
-          const trailColor = isOneTimer
-            ? PALETTE.iceCyan
-            : match.params.pinballActive
-              ? PALETTE.pinballGlow
-              : Math.abs(b.spin) > 0.5
-                ? PALETTE.iceCyan
-                : PALETTE.gold;
-          if (isOneTimer || bSpeed > 155) {
-            this.particles.emitBallTrail(b.x, b.y - b.z * 0.65, trailColor, b.radius > 7 || isOneTimer ? 3 : 2);
+        const isFeverBall = (b.feverTimer ?? 0) > 0;
+        if (isFeverBall || isOneTimer || bSpeed > 205 || match.params.pinballActive) {
+          const trailColor = isFeverBall
+            ? PALETTE.amber
+            : isOneTimer
+              ? PALETTE.iceCyan
+              : match.params.pinballActive
+                ? PALETTE.pinballGlow
+                : Math.abs(b.spin) > 0.5
+                  ? PALETTE.iceCyan
+                  : PALETTE.gold;
+          if (isFeverBall || isOneTimer || bSpeed > 155) {
+            this.particles.emitBallTrail(
+              b.x,
+              b.y - b.z * 0.65,
+              trailColor,
+              b.radius > 7 || isOneTimer || isFeverBall ? 3 : 2
+            );
           }
         }
       }
     }
   }
 
-  renderArenaAndEntities(ctx: CanvasRenderingContext2D, match: MatchState): void {
+  renderArenaAndEntities(
+    ctx: CanvasRenderingContext2D,
+    match: MatchState,
+    localHumanSlot: 1 | 2 | null = null
+  ): void {
     const replayFrame = match.phase === 'REPLAY' ? match.replay.getCurrentPlaybackFrame() : null;
     if (replayFrame) {
       this.renderReplayScene(ctx, replayFrame);
@@ -225,7 +283,10 @@ export class Renderer {
       match.params.windX,
       match.params.windY,
       crowdExcited,
-      true
+      true,
+      match.phase === 'PLAYING',
+      match.config.controlStyle ?? 'classic',
+      localHumanSlot
     );
   }
 
@@ -244,7 +305,9 @@ export class Renderer {
       frame.windX,
       frame.windY,
       true,
-      false
+      false,
+      false,
+      'classic'
     );
   }
 
@@ -252,7 +315,8 @@ export class Renderer {
     bounds: ArenaBounds,
     players: ReplayPlayerSnapshot[],
     balls: ReplayBallSnapshot[],
-    isReplay: boolean
+    isReplay: boolean,
+    localHumanSlot: 1 | 2 | null = null
   ): { camX: number; camY: number; isEnlarged: boolean } {
     const isEnlarged = bounds.right - bounds.left > 420 || bounds.bottom - bounds.top > 212;
     if (!isEnlarged) {
@@ -268,10 +332,19 @@ export class Renderer {
     let focusY = focusBall ? focusBall.y : bounds.centerY;
 
     if (!isReplay && focusBall) {
-      const humans = players.filter((p) => p.humanSlot !== null);
-      if (humans.length === 1) {
-        focusX = focusX * 0.84 + humans[0].x * 0.16;
-        focusY = focusY * 0.84 + humans[0].y * 0.16;
+      const localPlayer =
+        localHumanSlot !== null
+          ? players.find((p) => p.humanSlot === localHumanSlot)
+          : null;
+      if (localPlayer) {
+        focusX = focusX * 0.84 + localPlayer.x * 0.16;
+        focusY = focusY * 0.84 + localPlayer.y * 0.16;
+      } else {
+        const humans = players.filter((p) => p.humanSlot !== null);
+        if (humans.length === 1) {
+          focusX = focusX * 0.84 + humans[0].x * 0.16;
+          focusY = focusY * 0.84 + humans[0].y * 0.16;
+        }
       }
     }
 
@@ -374,7 +447,10 @@ export class Renderer {
     windX: number,
     windY: number,
     crowdExcited: boolean,
-    withShakeAndParticles: boolean
+    withShakeAndParticles: boolean,
+    showAimIndicators = false,
+    controlStyle: ControlStyle = 'classic',
+    localHumanSlot: 1 | 2 | null = null
   ): void {
     ctx.save();
 
@@ -391,7 +467,8 @@ export class Renderer {
       bounds,
       players,
       balls,
-      !withShakeAndParticles
+      !withShakeAndParticles,
+      localHumanSlot
     );
 
     ctx.save();
@@ -407,6 +484,11 @@ export class Renderer {
 
     // Back goal nets
     this.drawGoalNetsBack(ctx, bounds);
+
+    // Shot aim indicators rendered flat on the pitch surface beneath players & ball
+    if (showAimIndicators) {
+      this.drawShotAimIndicators(ctx, bounds, players, balls, controlStyle, localHumanSlot);
+    }
 
     // Y-sorted players & balls
     type RenderItem =
@@ -435,7 +517,8 @@ export class Renderer {
           item.ball.rollAngle,
           item.ball.untouchedTimer,
           hotPotatoActive,
-          item.ball.carrierId != null
+          item.ball.carrierId != null,
+          (item.ball.feverTimer ?? 0) > 0
         );
       }
     }
@@ -460,6 +543,54 @@ export class Renderer {
     }
 
     ctx.restore();
+  }
+
+  private drawShotAimIndicators(
+    ctx: CanvasRenderingContext2D,
+    bounds: ArenaBounds,
+    players: ReplayPlayerSnapshot[],
+    balls: ReplayBallSnapshot[],
+    controlStyle: ControlStyle,
+    localHumanSlot: 1 | 2 | null = null
+  ): void {
+    for (const p of players) {
+      if (p.humanSlot === null || p.role !== 'outfield' || p.stunTimer > 0) continue;
+      if (localHumanSlot !== null && p.humanSlot !== localHumanSlot) continue;
+
+      const carriedBall = balls.find((b) => b.carrierId === p.id) ?? null;
+      let shouldDrawPassHint = Boolean(carriedBall);
+      if (carriedBall) {
+        drawShotAimArrow(ctx, p, carriedBall, bounds, this.animClock);
+      } else {
+        let closestBall: ReplayBallSnapshot | null = null;
+        let closestDist = Infinity;
+        for (const b of balls) {
+          if (b.carrierId != null) continue;
+          const d = Math.hypot(b.x - p.x, b.y - p.y);
+          if (d < closestDist) {
+            closestDist = d;
+            closestBall = b;
+          }
+        }
+
+        if (p.isCharging) {
+          drawShotAimArrow(ctx, p, closestDist <= 38 ? closestBall : null, bounds, this.animClock);
+          shouldDrawPassHint = true;
+        } else if (controlStyle === 'classic' && closestBall && closestDist <= 24) {
+          drawShotAimArrow(ctx, p, closestBall, bounds, this.animClock);
+          shouldDrawPassHint = true;
+        }
+      }
+
+      if (shouldDrawPassHint) {
+        const originX = carriedBall ? carriedBall.x : p.x;
+        const originY = carriedBall ? carriedBall.y : p.y;
+        const passTarget = resolvePassTarget(p, players, bounds, p.facingX, p.facingY, originX, originY);
+        if (passTarget) {
+          drawPassTargetRing(ctx, passTarget.targetX, passTarget.targetY, this.animClock);
+        }
+      }
+    }
   }
 
   private renderCallouts(ctx: CanvasRenderingContext2D): void {

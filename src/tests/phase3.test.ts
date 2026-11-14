@@ -132,7 +132,6 @@ describe('Phase 3 Features', () => {
       aiWantCharge: false,
       aiChargeTarget: 0,
       aiWantDash: false,
-      shirtNumber: 9,
     });
 
     const pPerk = makeP(1, 'A');

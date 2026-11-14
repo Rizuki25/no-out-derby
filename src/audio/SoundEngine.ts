@@ -4,7 +4,6 @@ export class SoundEngine {
   private ctx: AudioContext | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private muted = false;
-  private bgmEnabled = true;
   private bgmPlaying = false;
   private bgmStep = 0;
   private nextNoteTime = 0;
@@ -38,7 +37,7 @@ export class SoundEngine {
   }
 
   startBgm(): void {
-    if (!this.bgmEnabled || this.bgmPlaying) return;
+    if (this.bgmPlaying) return;
     this.unlock();
     if (!this.ctx) return;
     this.bgmPlaying = true;
@@ -81,7 +80,13 @@ export class SoundEngine {
     for (const ev of events) {
       switch (ev.type) {
         case 'kick':
-          this.playKick(ev.power, ev.isOneTimer);
+          this.playKick(ev.power, ev.isOneTimer, ev.isPass, ev.isFeverShot);
+          break;
+        case 'feint_dodge':
+          this.playFeint();
+          break;
+        case 'fever_activate':
+          this.playFeverActivate();
           break;
         case 'wall_bounce':
           this.playWallBounce(ev.speed, ev.isPinball);
@@ -120,32 +125,54 @@ export class SoundEngine {
     }
   }
 
-  private playKick(power: number, isOneTimer = false): void {
+  private playKick(
+    power: number,
+    isOneTimer = false,
+    isPass = false,
+    isFeverShot = false
+  ): void {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
+    if (isPass) {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(240, now);
+      osc.frequency.exponentialRampToValueAtTime(88, now + 0.07);
+      gain.gain.setValueAtTime(0.16, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      osc.connect(gain).connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.085);
+      return;
+    }
+
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
-    osc.type = power >= 0.8 ? 'triangle' : 'sine';
-    const startFreq = (135 + power * 95) * (isOneTimer ? 1.25 : 1);
+    osc.type = power >= 0.8 || isFeverShot ? 'triangle' : 'sine';
+    const startFreq = (135 + power * 95) * (isFeverShot ? 1.32 : isOneTimer ? 1.25 : 1);
     osc.frequency.setValueAtTime(startFreq, now);
-    osc.frequency.exponentialRampToValueAtTime(isOneTimer ? 52 : 42, now + 0.11 + power * 0.05);
+    osc.frequency.exponentialRampToValueAtTime(
+      isFeverShot ? 60 : isOneTimer ? 52 : 42,
+      now + 0.11 + power * 0.05
+    );
     gain.gain.setValueAtTime(0.22 + power * 0.14, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12 + power * 0.05);
     osc.connect(gain).connect(this.ctx.destination);
     osc.start(now);
     osc.stop(now + 0.18);
 
-    if (isOneTimer) {
+    if (isOneTimer || isFeverShot) {
       const sting = this.ctx.createOscillator();
       const sGain = this.ctx.createGain();
       sting.type = 'square';
-      sting.frequency.setValueAtTime(480, now);
-      sting.frequency.exponentialRampToValueAtTime(920, now + 0.08);
-      sGain.gain.setValueAtTime(0.09, now);
-      sGain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+      sting.frequency.setValueAtTime(isFeverShot ? 560 : 480, now);
+      sting.frequency.exponentialRampToValueAtTime(isFeverShot ? 1120 : 920, now + 0.09);
+      sGain.gain.setValueAtTime(0.1, now);
+      sGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
       sting.connect(sGain).connect(this.ctx.destination);
       sting.start(now);
-      sting.stop(now + 0.12);
+      sting.stop(now + 0.13);
     }
 
     // Extra crisp punch snap on Power Shot
@@ -259,6 +286,40 @@ export class SoundEngine {
       snap.start(now + 0.03);
       snap.stop(now + 0.12);
     }
+  }
+
+  private playFeint(): void {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(280, now);
+    osc.frequency.exponentialRampToValueAtTime(580, now + 0.05);
+    osc.frequency.exponentialRampToValueAtTime(340, now + 0.1);
+    gain.gain.setValueAtTime(0.13, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+    osc.connect(gain).connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.12);
+  }
+
+  private playFeverActivate(): void {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    [440, 554.37, 659.25, 880].forEach((freq, i) => {
+      if (!this.ctx) return;
+      const t = now + i * 0.045;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = i % 2 === 0 ? 'square' : 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.11, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      osc.connect(gain).connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.19);
+    });
   }
 
   private playWhistle(kind: 'kickoff' | 'fulltime' | 'golden_goal'): void {
@@ -417,7 +478,16 @@ export class SoundEngine {
   }
 
   private scheduleBgmNotes(): void {
-    if (!this.bgmPlaying || !this.ctx || this.ctx.state !== 'running') return;
+    if (!this.bgmPlaying || !this.ctx) return;
+    // While the AudioContext is suspended (autoplay policy, backgrounded tab, device switch)
+    // keep the scheduler pinned to "now" so notes never pile up into a burst on resume.
+    if (this.ctx.state !== 'running') {
+      this.nextNoteTime = this.ctx.currentTime + 0.05;
+      return;
+    }
+    if (this.nextNoteTime < this.ctx.currentTime - 0.25) {
+      this.nextNoteTime = this.ctx.currentTime + 0.05;
+    }
     const baseBpm = 134 * this.bgmTempoMultiplier;
     const sixteenthDur = 60 / baseBpm / 4;
 

@@ -176,19 +176,13 @@ export function isInsidePitchOctagon(x: number, y: number, bounds: ArenaBounds, 
   const B = bounds.bottom - margin;
   if (x < L || x > R || y < T || y > B) return false;
 
-  // 45-degree chamfer distance checks (|dx| + |dy| beyond corner)
+  // Signed distance to each 45-degree chamfer line must be at least `margin`.
+  // For a line x + y = left + top + chamfer the signed distance is (x + y - left - top - chamfer) / sqrt(2).
   const invSqrt2 = Math.SQRT1_2;
-  const cLimit = bounds.chamfer + margin * (Math.SQRT2 - 1);
-  // Top-left: (x - left) + (y - top) >= chamfer adjusted by radius
-  const cornerMargin = margin * invSqrt2;
-  if (x - bounds.left + (y - bounds.top) < bounds.chamfer + cornerMargin * 2 - margin * 0) {
-    // Exact signed distance to TL chamfer line: (x - (L0 + C) + y - T0) / sqrt(2) >= margin
-    if ((x - bounds.left + (y - bounds.top) - bounds.chamfer) * invSqrt2 < margin) return false;
-  }
+  if ((x - bounds.left + (y - bounds.top) - bounds.chamfer) * invSqrt2 < margin) return false;
   if ((bounds.right - x + (y - bounds.top) - bounds.chamfer) * invSqrt2 < margin) return false;
   if ((bounds.right - x + (bounds.bottom - y) - bounds.chamfer) * invSqrt2 < margin) return false;
   if ((x - bounds.left + (bounds.bottom - y) - bounds.chamfer) * invSqrt2 < margin) return false;
-  void cLimit;
   return true;
 }
 
@@ -238,4 +232,182 @@ export function clampInsideArena(
       entity.y -= push;
     }
   }
+}
+
+export interface ShotAimResult {
+  x: number;
+  y: number;
+  /** True when the resolved shot trajectory threads inside the opponent goalmouth */
+  isGoalLocked: boolean;
+}
+
+/**
+ * Resolves a human player's kick/shot aim vector against the opponent goalmouth.
+ * Keeps backward passes, lateral crosses, and deep clearances 100% manual while applying
+ * a forgiving goal-cone assist in attacking range so 8-way keys and touch sticks can
+ * aim cleanly inside the goalposts without fighting wall bank shots.
+ */
+export function resolveShotAim(
+  playerX: number,
+  playerY: number,
+  facingX: number,
+  facingY: number,
+  team: 'A' | 'B',
+  bounds: ArenaBounds,
+  originX = playerX,
+  originY = playerY
+): ShotAimResult {
+  const len = Math.hypot(facingX, facingY);
+  const rawX = len > 0.001 ? facingX / len : team === 'A' ? 1 : -1;
+  const rawY = len > 0.001 ? facingY / len : 0;
+
+  const forwardX = team === 'A' ? 1 : -1;
+  const oppGoalX = team === 'A' ? bounds.right : bounds.left;
+  const dxToGoal = oppGoalX - originX;
+  const pitchSpanX = bounds.right - bounds.left;
+
+  // Keep defensive-zone clearances, sideways passes, and back-passes strictly manual.
+  if (
+    rawX * forwardX <= 0.38 ||
+    dxToGoal * forwardX <= 4 ||
+    (originX - bounds.centerX) * forwardX < -pitchSpanX * 0.14
+  ) {
+    return { x: rawX, y: rawY, isGoalLocked: false };
+  }
+
+  const goalHeight = bounds.goalBottomY - bounds.goalTopY;
+  const postSafeMargin = Math.min(goalHeight * 0.28, bounds.postRadius + 5.5);
+  const safeTopY = bounds.goalTopY + postSafeMargin;
+  const safeBottomY = bounds.goalBottomY - postSafeMargin;
+
+  // Extrapolate raw facing ray onto the opponent goal plane
+  const t = dxToGoal / rawX;
+  const rayY = originY + rawY * t;
+
+  if (rayY >= safeTopY && rayY <= safeBottomY) {
+    return { x: rawX, y: rawY, isGoalLocked: true };
+  }
+
+  const targetY = Math.max(safeTopY, Math.min(safeBottomY, rayY));
+  const txRaw = oppGoalX - originX;
+  const tyRaw = targetY - originY;
+  const tLen = Math.hypot(txRaw, tyRaw) || 1;
+  const tx = txRaw / tLen;
+  const ty = tyRaw / tLen;
+
+  const dot = Math.max(-1, Math.min(1, rawX * tx + rawY * ty));
+  const angleDiff = Math.acos(dot);
+
+  const fullLockAngle = 0.30; // ~17.2 deg: cleanly threads past the near goalpost
+  const maxAssistAngle = 0.41; // ~23.5 deg: tapers off so steep bank shots stay manual
+  if (angleDiff >= maxAssistAngle) {
+    return { x: rawX, y: rawY, isGoalLocked: false };
+  }
+
+  const falloff =
+    angleDiff <= fullLockAngle
+      ? 1
+      : 1 - (angleDiff - fullLockAngle) / (maxAssistAngle - fullLockAngle);
+  const smoothBlend = angleDiff <= fullLockAngle ? 1 : falloff * falloff * (3 - 2 * falloff);
+
+  const bx = rawX + (tx - rawX) * smoothBlend;
+  const by = rawY + (ty - rawY) * smoothBlend;
+  const bLen = Math.hypot(bx, by) || 1;
+  const nx = bx / bLen;
+  const ny = by / bLen;
+
+  const finalT = nx * forwardX > 0.1 ? dxToGoal / nx : 0;
+  const finalRayY = finalT > 0 ? originY + ny * finalT : rayY;
+  const isGoalLocked = finalRayY >= bounds.goalTopY + 5 && finalRayY <= bounds.goalBottomY - 5;
+
+  return { x: nx, y: ny, isGoalLocked };
+}
+
+export interface PassCandidateSnapshot {
+  id: number;
+  team: 'A' | 'B';
+  role: 'outfield' | 'keeper';
+  x: number;
+  y: number;
+  vx?: number;
+  vy?: number;
+  stunTimer?: number;
+}
+
+export interface PassTargetResult {
+  targetPlayerId: number;
+  targetX: number;
+  targetY: number;
+  dirX: number;
+  dirY: number;
+  dist: number;
+}
+
+/**
+ * Selects the best open outfield teammate for an accurate pass (biased by aim direction and
+ * attacking progression) and leads the pass slightly ahead of their velocity vector.
+ */
+export function resolvePassTarget(
+  passer: PassCandidateSnapshot,
+  allPlayers: readonly PassCandidateSnapshot[],
+  bounds: ArenaBounds,
+  aimX = passer.team === 'A' ? 1 : -1,
+  aimY = 0,
+  originX = passer.x,
+  originY = passer.y
+): PassTargetResult | null {
+  const mates = allPlayers.filter(
+    (m) =>
+      m.team === passer.team &&
+      m.role === 'outfield' &&
+      m.id !== passer.id &&
+      (m.stunTimer ?? 0) <= 0
+  );
+  if (mates.length === 0) return null;
+
+  const forwardX = passer.team === 'A' ? 1 : -1;
+  const aimLen = Math.hypot(aimX, aimY);
+  const ax = aimLen > 0.1 ? aimX / aimLen : forwardX;
+  const ay = aimLen > 0.1 ? aimY / aimLen : 0;
+  const spanX = Math.max(120, bounds.right - bounds.left);
+
+  let bestMate = mates[0];
+  let bestScore = -Infinity;
+  for (const m of mates) {
+    const dx = m.x - passer.x;
+    const dy = m.y - passer.y;
+    const dist = Math.hypot(dx, dy);
+    const nx = dist > 0.001 ? dx / dist : forwardX;
+    const ny = dist > 0.001 ? dy / dist : 0;
+    const dot = nx * ax + ny * ay;
+    const forwardBonus = (dx * forwardX) / (spanX * 0.45);
+    const score = dot * 2.2 + forwardBonus * 0.5 - dist / (spanX * 1.15);
+    if (score > bestScore) {
+      bestScore = score;
+      bestMate = m;
+    }
+  }
+
+  const rawDist = Math.hypot(bestMate.x - originX, bestMate.y - originY);
+  const leadTime = Math.min(0.28, rawDist / 260);
+  const targetX = Math.max(
+    bounds.left + 14,
+    Math.min(bounds.right - 14, bestMate.x + (bestMate.vx ?? 0) * leadTime + forwardX * 6)
+  );
+  const targetY = Math.max(
+    bounds.top + 14,
+    Math.min(bounds.bottom - 14, bestMate.y + (bestMate.vy ?? 0) * leadTime)
+  );
+  const px = targetX - originX;
+  const py = targetY - originY;
+  const dist = Math.hypot(px, py) || 1;
+
+  return {
+    targetPlayerId: bestMate.id,
+    targetX,
+    targetY,
+    dirX: px / dist,
+    dirY: py / dist,
+    dist,
+  };
 }

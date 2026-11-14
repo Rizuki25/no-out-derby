@@ -37,7 +37,6 @@ function makeAIPlayer(overrides: Partial<Player> = {}): Player {
     aiWantCharge: false,
     aiChargeTarget: 0,
     aiWantDash: false,
-    shirtNumber: 10,
     ...overrides,
   };
 }
@@ -181,7 +180,7 @@ describe('AIController', () => {
       bounds,
       'pro'
     );
-    expect(passInput.kickJustReleased).toBe(true);
+    expect(passInput.passJustPressed).toBe(true);
     expect(passInput.moveX).toBeGreaterThan(0.5);
   });
 });

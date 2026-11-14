@@ -1,11 +1,4 @@
-import {
-  AIDifficulty,
-  AIState,
-  ArenaBounds,
-  Ball,
-  Player,
-  PlayerInput,
-} from '../types.ts';
+import { AIDifficulty, ArenaBounds, Ball, Player, PlayerInput, TeamTactic } from '../types.ts';
 
 interface DifficultyProfile {
   reactionInterval: number;
@@ -55,17 +48,33 @@ export function createEmptyInput(): PlayerInput {
     kickJustReleased: false,
     dashJustPressed: false,
     switchJustPressed: false,
+    passJustPressed: false,
+    feverJustPressed: false,
+    tacticCycleJustPressed: false,
   };
 }
 
 export class AIController {
+  /**
+   * @param rng Injectable random source so AI decisions follow the match seed and stay reproducible.
+   */
+  constructor(private readonly rng: () => number = Math.random) {}
+
+  /** Clamped random in [0, 1) so a custom rng returning exactly 1 cannot index out of bounds. */
+  private random(): number {
+    const v = this.rng();
+    if (!Number.isFinite(v)) return 0;
+    return Math.min(0.999999, Math.max(0, v));
+  }
+
   computeInput(
     dt: number,
     player: Player,
     allPlayers: Player[],
     balls: Ball[],
     bounds: ArenaBounds,
-    difficulty: AIDifficulty
+    difficulty: AIDifficulty,
+    tactic: TeamTactic = 'balanced'
   ): PlayerInput {
     const profile = DIFFICULTY_PROFILES[difficulty];
     if (balls.length === 0) return createEmptyInput();
@@ -74,7 +83,7 @@ export class AIController {
       return this.computeKeeperInput(player, balls, bounds, profile);
     }
 
-    return this.computeOutfieldInput(dt, player, allPlayers, balls, bounds, profile);
+    return this.computeOutfieldInput(dt, player, allPlayers, balls, bounds, profile, tactic);
   }
 
   private computeKeeperInput(
@@ -138,7 +147,8 @@ export class AIController {
     allPlayers: Player[],
     balls: Ball[],
     bounds: ArenaBounds,
-    profile: DifficultyProfile
+    profile: DifficultyProfile,
+    tactic: TeamTactic = 'balanced'
   ): PlayerInput {
     const input = createEmptyInput();
     const isTeamA = player.team === 'A';
@@ -214,7 +224,8 @@ export class AIController {
         goalCenterY,
         attackDir,
         bounds,
-        profile
+        profile,
+        tactic
       );
     }
 
@@ -262,7 +273,7 @@ export class AIController {
         : undefined;
 
     if (isCarrier) {
-      // In Dribble Mode, pass ahead to an open human striker or carry toward goal & shoot
+      // In Dribble Mode, pass ahead to an open human striker or open AI runner when lane is clear
       const distToOppGoal = Math.abs(oppGoalX - player.x);
       let closestOppDist = Infinity;
       for (const opp of allPlayers) {
@@ -272,26 +283,45 @@ export class AIController {
         }
       }
 
-      const humanMate = teammates.find((m) => m.humanSlot !== null && m.stunTimer <= 0);
-      const minPassGain = Math.max(28, spanX * 0.08);
-      if (
-        humanMate &&
-        distToOppGoal > Math.max(115, spanX * 0.28) &&
-        (humanMate.x - player.x) * attackDir > minPassGain
-      ) {
-        const laneBlocked = allPlayers.some((opp) => {
-          if (opp.team === player.team || opp.role !== 'outfield') return false;
-          const midX = (player.x + humanMate.x) * 0.5;
-          const midY = (player.y + humanMate.y) * 0.5;
-          return Math.hypot(opp.x - midX, opp.y - midY) < 22;
-        });
-        if (!laneBlocked) {
-          const px = humanMate.x + attackDir * 14 - player.x;
-          const py = humanMate.y - player.y;
+      const minPassGain = Math.max(26, spanX * 0.08);
+      if (distToOppGoal > Math.max(96, spanX * 0.24) && player.kickContactCooldown <= 0) {
+        let bestMate: Player | null = null;
+        let bestMateScore = -Infinity;
+        for (const mate of teammates) {
+          if (mate.stunTimer > 0) continue;
+          const forwardGain = (mate.x - player.x) * attackDir;
+          const wantsBotPass =
+            closestOppDist < 36 || tactic === 'attack' || forwardGain > Math.max(42, spanX * 0.13);
+          const eligible =
+            mate.humanSlot !== null ? forwardGain > minPassGain : forwardGain > minPassGain && wantsBotPass;
+          if (!eligible) continue;
+
+          const laneBlocked = allPlayers.some((opp) => {
+            if (opp.team === player.team || opp.role !== 'outfield' || opp.stunTimer > 0) return false;
+            for (const frac of [0.28, 0.52, 0.76]) {
+              const sx = player.x + (mate.x - player.x) * frac;
+              const sy = player.y + (mate.y - player.y) * frac;
+              if (Math.hypot(opp.x - sx, opp.y - sy) < 19) return true;
+            }
+            return false;
+          });
+          if (laneBlocked) continue;
+
+          const mateDist = Math.hypot(mate.x - player.x, mate.y - player.y);
+          const score =
+            (mate.humanSlot !== null ? 65 : 0) + forwardGain - Math.abs(mateDist - 95) * 0.25;
+          if (score > bestMateScore) {
+            bestMateScore = score;
+            bestMate = mate;
+          }
+        }
+        if (bestMate) {
+          const px = bestMate.x + attackDir * 12 - player.x;
+          const py = bestMate.y - player.y;
           const pDist = Math.hypot(px, py) || 1;
           input.moveX = px / pDist;
           input.moveY = py / pDist;
-          input.kickJustReleased = true;
+          input.passJustPressed = true;
           return input;
         }
       }
@@ -365,7 +395,8 @@ export class AIController {
     goalCenterY: number,
     attackDir: number,
     bounds: ArenaBounds,
-    profile: DifficultyProfile
+    profile: DifficultyProfile,
+    tactic: TeamTactic = 'balanced'
   ): void {
     player.aiWantDash = false;
 
@@ -402,10 +433,10 @@ export class AIController {
 
       player.aiTargetX = oppGoalX - attackDir * 52;
       player.aiTargetY = targetY;
-      player.aiWantCharge = Math.random() < profile.chargeChance * 0.8;
-      player.aiChargeTarget = player.aiWantCharge ? 0.22 + Math.random() * 0.25 : 0;
+      player.aiWantCharge = this.random() < profile.chargeChance * 0.8;
+      player.aiChargeTarget = player.aiWantCharge ? 0.22 + this.random() * 0.25 : 0;
 
-      if (closestOppDist < 34 && Math.abs(oppGoalX - player.x) > 105 && Math.random() < profile.dashChance * 0.45) {
+      if (closestOppDist < 34 && Math.abs(oppGoalX - player.x) > 105 && this.random() < profile.dashChance * 0.45) {
         player.aiWantDash = true;
       }
       return;
@@ -418,56 +449,118 @@ export class AIController {
     const spanX = bounds.right - bounds.left;
     const spanY = bounds.bottom - bounds.top;
 
-    // 2v2 / 3v3 Support Role when teammate is primary chaser or human carrier: help defend or attack
+    // 2v2 / 3v3 / 4v4 Support Role when teammate is primary chaser or human carrier
     if (!isPrimaryChaser) {
       const hasOwnKeeper = allPlayers.some(
         (p) => p.team === player.team && p.role === 'keeper'
       );
-      const humanMate = allPlayers.find(
-        (m) => m.team === player.team && m.role === 'outfield' && m.humanSlot !== null && m.id !== player.id
+      const outfieldMates = allPlayers.filter(
+        (m) => m.team === player.team && m.role === 'outfield'
       );
+      let excludedId =
+        ball.carrierId != null && outfieldMates.some((m) => m.id === ball.carrierId)
+          ? ball.carrierId
+          : null;
+      if (excludedId === null) {
+        let bestDist = Infinity;
+        for (const m of outfieldMates) {
+          if (m.stunTimer > 0) continue;
+          const d = Math.hypot(m.x - ball.x, m.y - ball.y);
+          if (d < bestDist) {
+            bestDist = d;
+            excludedId = m.id;
+          }
+        }
+      }
+      const supportPeers = outfieldMates
+        .filter((m) => m.humanSlot === null && m.id !== excludedId)
+        .sort((a, b) => a.id - b.id);
+      const supportIdx = Math.max(0, supportPeers.findIndex((m) => m.id === player.id));
+      const isSecondaryWingBot = supportPeers.length >= 2 && supportIdx > 0;
+
+      const humanMate = outfieldMates.find(
+        (m) => m.humanSlot !== null && m.id !== player.id
+      );
+      const threatBias =
+        tactic === 'attack' ? -spanX * 0.08 : tactic === 'defend' ? spanX * 0.16 : spanX * 0.06;
       const ballThreateningUs =
-        (attackDir === 1 ? ball.x < bounds.centerX + spanX * 0.06 : ball.x > bounds.centerX - spanX * 0.06) ||
+        (attackDir === 1 ? ball.x < bounds.centerX + threatBias : ball.x > bounds.centerX - threatBias) ||
         Boolean(oppCarrier);
+      const tacticShiftX =
+        tactic === 'attack' ? spanX * 0.14 : tactic === 'defend' ? -spanX * 0.15 : 0;
 
       if (ballThreateningUs) {
         player.aiState = 'DEFEND_GOAL';
         const distToDanger = Math.hypot(ball.x - player.x, ball.y - player.y);
         const nearOurGoal = Math.abs(ball.x - ownGoalX) < spanX * 0.28;
-        if (distToDanger < 56 || (oppCarrier && nearOurGoal)) {
-          // Step in decisively to block shot or tackle approaching attacker
+        const pressRadius = tactic === 'attack' ? 82 : tactic === 'defend' ? 42 : 56;
+        if (!isSecondaryWingBot && (distToDanger < pressRadius || (oppCarrier && nearOurGoal))) {
+          // Primary support defender steps in decisively to block shot or tackle attacker
           player.aiTargetX = Math.max(
             bounds.left + 14,
             Math.min(bounds.right - 14, predX - attackDir * 4)
           );
           player.aiTargetY = predY;
-          if (oppCarrier && distToDanger < 44 && Math.random() < Math.max(0.25, profile.dashChance * 0.75)) {
+          if (oppCarrier && distToDanger < 44 && this.random() < Math.max(0.25, profile.dashChance * 0.75)) {
             player.aiWantDash = true;
           }
         } else {
-          // Guard the central corridor between ball and own goal
-          const defDepth = hasOwnKeeper ? Math.max(52, spanX * 0.16) : Math.max(38, spanX * 0.12);
-          player.aiTargetX = ownGoalX + attackDir * defDepth;
-          player.aiTargetY = Math.max(
-            bounds.goalTopY - 10,
-            Math.min(bounds.goalBottomY + 10, ball.y * 0.6 + goalCenterY * 0.4)
-          );
+          const depthScale = tactic === 'defend' ? 0.78 : tactic === 'attack' ? 1.24 : 1.0;
+          const baseDepth =
+            (hasOwnKeeper ? Math.max(52, spanX * 0.16) : Math.max(38, spanX * 0.12)) * depthScale;
+          if (isSecondaryWingBot) {
+            // Second support defender in 4v4 guards the weak-side midfield lane against switches
+            const midOffset =
+              tactic === 'attack' ? Math.max(baseDepth + 76, spanX * 0.42) : Math.max(baseDepth + 36, spanX * 0.27);
+            player.aiTargetX = Math.max(
+              bounds.left + 18,
+              Math.min(bounds.right - 18, ownGoalX + attackDir * midOffset)
+            );
+            const coverOffset = Math.max(32, spanY * 0.18);
+            player.aiTargetY =
+              ball.y > goalCenterY
+                ? Math.max(bounds.top + 22, goalCenterY - coverOffset)
+                : Math.min(bounds.bottom - 22, goalCenterY + coverOffset);
+          } else {
+            // Guard the central corridor between ball and own goal
+            player.aiTargetX = Math.max(
+              bounds.left + 18,
+              Math.min(bounds.right - 18, ownGoalX + attackDir * baseDepth)
+            );
+            player.aiTargetY = Math.max(
+              bounds.goalTopY - 10,
+              Math.min(bounds.goalBottomY + 10, ball.y * 0.6 + goalCenterY * 0.4)
+            );
+          }
         }
       } else {
-        // Push up into open opposite wing / backpost lane to receive passes & finish rebounds
+        // Push up into open opposite wing / backpost lane (and midfield trailer in 4v4)
         player.aiState = 'ALIGN_SHOT';
         const anchorX =
           humanMate && ball.carrierId === humanMate.id ? humanMate.x : ball.x;
-        const progress = Math.max(
-          spanX * 0.54,
-          Math.min(spanX * 0.85, Math.abs(anchorX - ownGoalX) + Math.max(46, spanX * 0.14))
-        );
-        const wingOffset = Math.max(40, spanY * 0.24);
-        player.aiTargetX = ownGoalX + attackDir * progress;
-        player.aiTargetY =
-          ball.y < goalCenterY
-            ? Math.min(bounds.bottom - 20, goalCenterY + wingOffset)
-            : Math.max(bounds.top + 20, goalCenterY - wingOffset);
+        if (isSecondaryWingBot) {
+          const rawTrailer = Math.max(
+            spanX * 0.36,
+            Math.min(spanX * 0.78, Math.abs(anchorX - ownGoalX) - Math.max(24, spanX * 0.06) + tacticShiftX)
+          );
+          const supportOffset = Math.max(28, spanY * 0.16);
+          player.aiTargetX = ownGoalX + attackDir * rawTrailer;
+          player.aiTargetY =
+            ball.y < goalCenterY
+              ? Math.max(bounds.top + 22, goalCenterY - supportOffset)
+              : Math.min(bounds.bottom - 22, goalCenterY + supportOffset);
+        } else {
+          const progress = Math.max(
+            spanX * 0.38,
+            Math.min(spanX * 0.90, Math.abs(anchorX - ownGoalX) + Math.max(46, spanX * 0.14) + tacticShiftX)
+          );
+          const wingOffset = Math.max(40, spanY * 0.24);
+          player.aiTargetX = ownGoalX + attackDir * progress;
+          player.aiTargetY =
+            ball.y < goalCenterY
+              ? Math.min(bounds.bottom - 20, goalCenterY + wingOffset)
+              : Math.max(bounds.top + 20, goalCenterY - wingOffset);
+        }
       }
       return;
     }
@@ -484,7 +577,7 @@ export class AIController {
         Math.min(bounds.right - 14, oppCarrier.x - attackDir * (behindCarrier ? 18 : 0))
       );
       player.aiTargetY = oppCarrier.y + oppCarrier.facingY * 5;
-      if (distToCarrier < 44 && Math.random() < Math.max(0.2, profile.dashChance * 0.85)) {
+      if (distToCarrier < 44 && this.random() < Math.max(0.2, profile.dashChance * 0.85)) {
         player.aiWantDash = true;
       }
       return;
@@ -505,7 +598,7 @@ export class AIController {
 
       // Dash back defensively if ball is dangerously close to own goal
       const ballNearOwnGoal = Math.abs(ball.x - ownGoalX) < Math.max(120, spanX * 0.3);
-      if (ballNearOwnGoal && Math.random() < profile.dashChance * 0.55) {
+      if (ballNearOwnGoal && this.random() < profile.dashChance * 0.55) {
         player.aiWantDash = true;
       }
       return;
@@ -527,8 +620,8 @@ export class AIController {
       // Position slightly behind ball opposite to shot vector
       player.aiTargetX = predX - shotVec.x * 8;
       player.aiTargetY = predY - shotVec.y * 8;
-      player.aiWantCharge = Math.random() < profile.chargeChance;
-      player.aiChargeTarget = player.aiWantCharge ? 0.25 + Math.random() * 0.3 : 0;
+      player.aiWantCharge = this.random() < profile.chargeChance;
+      player.aiChargeTarget = player.aiWantCharge ? 0.25 + this.random() * 0.3 : 0;
     } else {
       player.aiState = 'CHASE_BALL';
       // Approach slightly from own-goal side of ball
@@ -542,7 +635,7 @@ export class AIController {
           o.role === 'outfield' &&
           Math.hypot(o.x - ball.x, o.y - ball.y) < 34
       );
-      if (oppNearBall && distToBall < 85 && Math.random() < profile.dashChance * 0.5) {
+      if (oppNearBall && distToBall < 85 && this.random() < profile.dashChance * 0.5) {
         player.aiWantDash = true;
       }
     }
@@ -591,9 +684,5 @@ export class AIController {
     const jitterOffset = Math.sin(player.animTime * 7.3 + player.id) * profile.aimJitter;
     const angle = baseAngle + jitterOffset;
     return { x: Math.cos(angle), y: Math.sin(angle) };
-  }
-
-  static getStateLabel(state: AIState): string {
-    return state;
   }
 }
