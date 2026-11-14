@@ -67,6 +67,53 @@ export interface MobileHudSyncState {
   teamTactic?: TeamTactic;
 }
 
+export interface TouchStickVector {
+  knobX: number;
+  knobY: number;
+  moveX: number;
+  moveY: number;
+}
+
+export const TOUCH_STICK_DEADZONE_PX = 2.4;
+export const TOUCH_STICK_FULL_THROW_RATIO = 0.78;
+export const TOUCH_STICK_MIN_MAGNITUDE = 0.24;
+
+/** Maps raw pointer offset from touch stick center into visual knob coords and normalized [-1, 1] move vector. */
+export function computeTouchStickVector(
+  dx: number,
+  dy: number,
+  maxR: number
+): TouchStickVector {
+  if (!Number.isFinite(dx) || !Number.isFinite(dy) || !Number.isFinite(maxR) || maxR <= 0) {
+    return { knobX: 0, knobY: 0, moveX: 0, moveY: 0 };
+  }
+  const dist = Math.hypot(dx, dy);
+  if (dist === 0) {
+    return { knobX: 0, knobY: 0, moveX: 0, moveY: 0 };
+  }
+  const nx = dx / dist;
+  const ny = dy / dist;
+  const clampedDist = Math.min(dist, maxR);
+  const knobX = nx * clampedDist;
+  const knobY = ny * clampedDist;
+
+  const deadzone = Math.min(TOUCH_STICK_DEADZONE_PX, maxR * 0.2);
+  if (dist <= deadzone) {
+    return { knobX, knobY, moveX: 0, moveY: 0 };
+  }
+
+  // Reach full sprint slightly inside the outer rim so quick thumb reversals stay snappy.
+  const fullThrow = Math.max(deadzone + 1, maxR * TOUCH_STICK_FULL_THROW_RATIO);
+  const t = Math.min(1, (dist - deadzone) / (fullThrow - deadzone));
+  const mag = TOUCH_STICK_MIN_MAGNITUDE + (1 - TOUCH_STICK_MIN_MAGNITUDE) * t;
+  return {
+    knobX,
+    knobY,
+    moveX: nx * mag,
+    moveY: ny * mag,
+  };
+}
+
 export class InputManager {
   private heldCodes = new Set<string>();
   private justPressedCodes = new Set<string>();
@@ -419,10 +466,12 @@ export class InputManager {
     el.style.top = value;
   }
 
-  private writeHeight(el: HTMLElement | null, value: string): void {
-    if (!el || this.hudWritten.get('kickCharge:height') === value) return;
-    this.hudWritten.set('kickCharge:height', value);
-    el.style.height = value;
+  private writeChargeScale(el: HTMLElement | null, ratio: number): void {
+    const quantized = Math.round(Math.max(0, Math.min(1, ratio)) * 100) / 100;
+    const value = `scaleY(${quantized})`;
+    if (!el || this.hudWritten.get('kickCharge:transform') === value) return;
+    this.hudWritten.set('kickCharge:transform', value);
+    el.style.transform = value;
   }
 
   /**
@@ -496,8 +545,7 @@ export class InputManager {
     this.writeClass('tactic', els.tacticBtn, 'atk', tac === 'attack');
     this.writeClass('tactic', els.tacticBtn, 'def', tac === 'defend');
 
-    const pct = Math.max(0, Math.min(100, Math.round(state.kickChargeRatio * 100)));
-    this.writeHeight(els.kickCharge, `${pct}%`);
+    this.writeChargeScale(els.kickCharge, state.kickChargeRatio);
 
     this.writeText('mute', els.muteBtn, state.muted ? 'SFX:OFF' : 'SFX:ON');
     this.writeClass('mute', els.muteBtn, 'muted', state.muted);
@@ -858,50 +906,59 @@ export class InputManager {
 
     let stickPointerId: number | null = null;
     let kickPointerId: number | null = null;
-    let dashPointerId: number | null = null;
-    let switchPointerId: number | null = null;
-    let passPointerId: number | null = null;
-    let feverPointerId: number | null = null;
+    let stickBounds: { cx: number; cy: number; maxR: number } | null = null;
+    let lastKnobTransform = 'translate3d(0px, 0px, 0)';
+    const resetBtnCallbacks: Array<() => void> = [];
+
+    const setKnobTransform = (x: number, y: number) => {
+      // Half-pixel quantization avoids redundant style writes during micro-tremor.
+      const kx = Math.round(x * 2) / 2;
+      const ky = Math.round(y * 2) / 2;
+      const next = `translate3d(${kx}px, ${ky}px, 0)`;
+      if (next === lastKnobTransform) return;
+      lastKnobTransform = next;
+      stickKnob.style.transform = next;
+    };
+
+    const readStickBounds = (): { cx: number; cy: number; maxR: number } => {
+      const rect = stickBase.getBoundingClientRect();
+      return {
+        cx: rect.left + rect.width * 0.5,
+        cy: rect.top + rect.height * 0.5,
+        maxR: Math.max(12, rect.width * 0.36),
+      };
+    };
+
+    const invalidateStickBounds = () => {
+      stickBounds = null;
+    };
+    this.listen<Event>(window, 'resize', invalidateStickBounds);
+    this.listen<Event>(window, 'orientationchange', invalidateStickBounds);
 
     this.resetTouchVisuals = () => {
       stickPointerId = null;
       kickPointerId = null;
-      dashPointerId = null;
-      switchPointerId = null;
-      passPointerId = null;
-      feverPointerId = null;
-      stickKnob.style.transform = 'translate(0px, 0px)';
+      stickBounds = null;
+      setKnobTransform(0, 0);
       kickBtn.classList.remove('pressed');
-      dashBtn.classList.remove('pressed');
-      switchBtn.classList.remove('pressed');
-      passBtn?.classList.remove('pressed');
-      feverBtn?.classList.remove('pressed');
+      for (const resetBtn of resetBtnCallbacks) {
+        resetBtn();
+      }
     };
 
     const updateStick = (clientX: number, clientY: number) => {
-      const rect = stickBase.getBoundingClientRect();
-      const cx = rect.left + rect.width * 0.5;
-      const cy = rect.top + rect.height * 0.5;
-      const maxR = Math.max(12, rect.width * 0.36);
-      const deadzone = 5.5;
-      let dx = clientX - cx;
-      let dy = clientY - cy;
-      const dist = Math.hypot(dx, dy);
-      if (dist > maxR && dist > 0) {
-        dx = (dx / dist) * maxR;
-        dy = (dy / dist) * maxR;
+      // Reuse the rect captured at pointerdown so rapid pointermove drags trigger zero layout reads.
+      if (!stickBounds) {
+        stickBounds = readStickBounds();
       }
-      stickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
-      if (dist <= deadzone) {
-        this.touchMoveX = 0;
-        this.touchMoveY = 0;
-      } else {
-        // Radial deadzone keeps 360-degree touch aiming smooth around horizontal/vertical axes.
-        const effectiveDist = Math.min(dist, maxR);
-        const mag = 0.18 + 0.82 * ((effectiveDist - deadzone) / Math.max(1, maxR - deadzone));
-        this.touchMoveX = (dx / dist) * mag;
-        this.touchMoveY = (dy / dist) * mag;
-      }
+      const vec = computeTouchStickVector(
+        clientX - stickBounds.cx,
+        clientY - stickBounds.cy,
+        stickBounds.maxR
+      );
+      setKnobTransform(vec.knobX, vec.knobY);
+      this.touchMoveX = vec.moveX;
+      this.touchMoveY = vec.moveY;
     };
 
     this.listen<PointerEvent>(stickBase, 'pointerdown', (e: PointerEvent) => {
@@ -910,6 +967,7 @@ export class InputManager {
       if (e.pointerType === 'touch') this.hasTouchSeen = true;
       stickPointerId = e.pointerId;
       stickBase.setPointerCapture?.(e.pointerId);
+      stickBounds = readStickBounds();
       updateStick(e.clientX, e.clientY);
     });
 
@@ -923,12 +981,14 @@ export class InputManager {
       if (e.pointerId !== stickPointerId) return;
       e.preventDefault();
       stickPointerId = null;
-      stickKnob.style.transform = 'translate(0px, 0px)';
+      stickBounds = null;
+      setKnobTransform(0, 0);
       this.touchMoveX = 0;
       this.touchMoveY = 0;
     };
     this.listen<PointerEvent>(stickBase, 'pointerup', releaseStick);
     this.listen<PointerEvent>(stickBase, 'pointercancel', releaseStick);
+    this.listen<PointerEvent>(stickBase, 'lostpointercapture', releaseStick);
 
     this.listen<PointerEvent>(kickBtn, 'pointerdown', (e: PointerEvent) => {
       e.preventDefault();
@@ -951,82 +1011,47 @@ export class InputManager {
     };
     this.listen<PointerEvent>(kickBtn, 'pointerup', endKick);
     this.listen<PointerEvent>(kickBtn, 'pointercancel', endKick);
+    this.listen<PointerEvent>(kickBtn, 'lostpointercapture', endKick);
 
-    this.listen<PointerEvent>(dashBtn, 'pointerdown', (e: PointerEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.pointerType === 'touch') this.hasTouchSeen = true;
-      dashPointerId = e.pointerId;
-      dashBtn.setPointerCapture?.(e.pointerId);
+    const bindTapActionButton = (el: HTMLElement | null, onPress: () => void) => {
+      if (!el) return;
+      let activePointerId: number | null = null;
+      resetBtnCallbacks.push(() => {
+        activePointerId = null;
+        el.classList.remove('pressed');
+      });
+      this.listen<PointerEvent>(el, 'pointerdown', (e: PointerEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.pointerType === 'touch') this.hasTouchSeen = true;
+        activePointerId = e.pointerId;
+        el.setPointerCapture?.(e.pointerId);
+        onPress();
+        el.classList.add('pressed');
+      });
+      const endPress = (e: PointerEvent) => {
+        if (e.pointerId !== activePointerId) return;
+        e.preventDefault();
+        activePointerId = null;
+        el.classList.remove('pressed');
+      };
+      this.listen<PointerEvent>(el, 'pointerup', endPress);
+      this.listen<PointerEvent>(el, 'pointercancel', endPress);
+      this.listen<PointerEvent>(el, 'lostpointercapture', endPress);
+    };
+
+    bindTapActionButton(dashBtn, () => {
       this.touchDashJustPressed = true;
-      dashBtn.classList.add('pressed');
     });
-    const endDash = (e: PointerEvent) => {
-      if (e.pointerId !== dashPointerId) return;
-      e.preventDefault();
-      dashPointerId = null;
-      dashBtn.classList.remove('pressed');
-    };
-    this.listen<PointerEvent>(dashBtn, 'pointerup', endDash);
-    this.listen<PointerEvent>(dashBtn, 'pointercancel', endDash);
-
-    this.listen<PointerEvent>(switchBtn, 'pointerdown', (e: PointerEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.pointerType === 'touch') this.hasTouchSeen = true;
-      switchPointerId = e.pointerId;
-      switchBtn.setPointerCapture?.(e.pointerId);
+    bindTapActionButton(switchBtn, () => {
       this.touchSwitchJustPressed = true;
-      switchBtn.classList.add('pressed');
     });
-    const endSwitch = (e: PointerEvent) => {
-      if (e.pointerId !== switchPointerId) return;
-      e.preventDefault();
-      switchPointerId = null;
-      switchBtn.classList.remove('pressed');
-    };
-    this.listen<PointerEvent>(switchBtn, 'pointerup', endSwitch);
-    this.listen<PointerEvent>(switchBtn, 'pointercancel', endSwitch);
-
-    if (passBtn) {
-      this.listen<PointerEvent>(passBtn, 'pointerdown', (e: PointerEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.pointerType === 'touch') this.hasTouchSeen = true;
-        passPointerId = e.pointerId;
-        passBtn.setPointerCapture?.(e.pointerId);
-        this.touchPassJustPressed = true;
-        passBtn.classList.add('pressed');
-      });
-      const endPass = (e: PointerEvent) => {
-        if (e.pointerId !== passPointerId) return;
-        e.preventDefault();
-        passPointerId = null;
-        passBtn.classList.remove('pressed');
-      };
-      this.listen<PointerEvent>(passBtn, 'pointerup', endPass);
-      this.listen<PointerEvent>(passBtn, 'pointercancel', endPass);
-    }
-
-    if (feverBtn) {
-      this.listen<PointerEvent>(feverBtn, 'pointerdown', (e: PointerEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.pointerType === 'touch') this.hasTouchSeen = true;
-        feverPointerId = e.pointerId;
-        feverBtn.setPointerCapture?.(e.pointerId);
-        this.touchFeverJustPressed = true;
-        feverBtn.classList.add('pressed');
-      });
-      const endFever = (e: PointerEvent) => {
-        if (e.pointerId !== feverPointerId) return;
-        e.preventDefault();
-        feverPointerId = null;
-        feverBtn.classList.remove('pressed');
-      };
-      this.listen<PointerEvent>(feverBtn, 'pointerup', endFever);
-      this.listen<PointerEvent>(feverBtn, 'pointercancel', endFever);
-    }
+    bindTapActionButton(passBtn, () => {
+      this.touchPassJustPressed = true;
+    });
+    bindTapActionButton(feverBtn, () => {
+      this.touchFeverJustPressed = true;
+    });
 
     const bindSpecialButton = (el: HTMLElement | null, handler: () => void) => {
       if (!el) return;

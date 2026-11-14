@@ -10,6 +10,12 @@ import {
 } from '../game/Fullscreen.ts';
 import { MatchState } from '../game/MatchState.ts';
 import {
+  TOUCH_STICK_DEADZONE_PX,
+  TOUCH_STICK_FULL_THROW_RATIO,
+  TOUCH_STICK_MIN_MAGNITUDE,
+  computeTouchStickVector,
+} from '../game/InputManager.ts';
+import {
   computeCanvasDisplaySize,
   cycleDisplayMode,
   getDisplayModeLabel,
@@ -232,5 +238,55 @@ describe('Fullscreen Helper & Orientation Lock', () => {
     const exitFallback = await toggleAppFullscreen(true, unsupportedDoc, null);
     expect(exitFallback).toEqual({ active: false, mode: 'exited' });
     expect(isFullscreenActive(unsupportedDoc)).toBe(false);
+  });
+});
+
+describe('Touch stick response curve', () => {
+  it('zeroes movement inside deadzone while keeping visual knob tracking smooth', () => {
+    expect(computeTouchStickVector(0, 0, 42)).toEqual({
+      knobX: 0,
+      knobY: 0,
+      moveX: 0,
+      moveY: 0,
+    });
+
+    const tiny = computeTouchStickVector(TOUCH_STICK_DEADZONE_PX * 0.5, 0, 42);
+    expect(tiny.knobX).toBeCloseTo(TOUCH_STICK_DEADZONE_PX * 0.5, 5);
+    expect(tiny.moveX).toBe(0);
+    expect(tiny.moveY).toBe(0);
+  });
+
+  it('starts responsive just past deadzone and reaches full speed at 78% rim throw', () => {
+    const maxR = 40;
+    const justPast = computeTouchStickVector(TOUCH_STICK_DEADZONE_PX + 0.5, 0, maxR);
+    expect(justPast.moveX).toBeGreaterThanOrEqual(TOUCH_STICK_MIN_MAGNITUDE);
+    expect(justPast.moveX).toBeLessThan(0.5);
+
+    const fullThrowDist = maxR * TOUCH_STICK_FULL_THROW_RATIO;
+    const atFull = computeTouchStickVector(fullThrowDist, 0, maxR);
+    expect(atFull.moveX).toBeCloseTo(1, 5);
+    expect(atFull.moveY).toBe(0);
+    expect(atFull.knobX).toBeCloseTo(fullThrowDist, 5);
+
+    const beyondRim = computeTouchStickVector(60, 60, maxR);
+    expect(Math.hypot(beyondRim.knobX, beyondRim.knobY)).toBeCloseTo(maxR, 5);
+    expect(Math.hypot(beyondRim.moveX, beyondRim.moveY)).toBeCloseTo(1, 5);
+    expect(beyondRim.moveX).toBeCloseTo(Math.SQRT1_2, 5);
+    expect(beyondRim.moveY).toBeCloseTo(Math.SQRT1_2, 5);
+  });
+
+  it('guards non-positive radius and non-finite inputs cleanly', () => {
+    expect(computeTouchStickVector(10, 10, 0)).toEqual({
+      knobX: 0,
+      knobY: 0,
+      moveX: 0,
+      moveY: 0,
+    });
+    expect(computeTouchStickVector(Number.NaN, 5, 40)).toEqual({
+      knobX: 0,
+      knobY: 0,
+      moveX: 0,
+      moveY: 0,
+    });
   });
 });

@@ -22,6 +22,7 @@
         user-select: none;
         -webkit-user-select: none;
         -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
       }
 
       /* Only the playable surface and its controls swallow gestures.
@@ -360,7 +361,7 @@
         border-radius: 50%;
         border: 3px solid rgba(141, 240, 255, 0.35);
         background: radial-gradient(circle, rgba(22, 32, 48, 0.65) 0%, rgba(11, 14, 20, 0.78) 100%);
-        box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.65), 0 0 0 2px rgba(11, 14, 20, 0.75);
+        box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(11, 14, 20, 0.75);
       }
 
       #touch-controls.portrait #touch-stick-base {
@@ -419,7 +420,9 @@
         border-radius: 50%;
         background: radial-gradient(circle at 35% 35%, #ffffff 0%, #9ad9ff 45%, #347ec2 100%);
         border: 2px solid #f4f8ff;
-        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.65);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.55);
+        transform: translate3d(0px, 0px, 0);
+        will-change: transform;
         pointer-events: none;
       }
 
@@ -448,12 +451,16 @@
         justify-content: center;
         gap: 2px;
         opacity: 0.9;
-        box-shadow: 0 4px 0 rgba(0, 0, 0, 0.55), 0 8px 18px rgba(0, 0, 0, 0.45);
-        transition: transform 0.06s ease, opacity 0.1s ease;
+        box-shadow: 0 3px 0 rgba(0, 0, 0, 0.55);
+        will-change: transform;
+      }
+
+      .touch-btn > span {
+        pointer-events: none;
       }
 
       .touch-btn.pressed {
-        transform: translateY(2px) scale(0.94);
+        transform: translate3d(0, 2px, 0) scale(0.94);
         opacity: 1;
         border-color: #ffffff;
       }
@@ -484,7 +491,10 @@
         left: 0;
         right: 0;
         bottom: 0;
-        height: 0%;
+        height: 100%;
+        transform-origin: bottom center;
+        transform: scaleY(0);
+        will-change: transform;
         background: rgba(244, 180, 27, 0.55);
         pointer-events: none;
         z-index: 0;
@@ -548,7 +558,7 @@
         border-color: #fff3b0;
         color: #0b0e14;
         opacity: 1;
-        box-shadow: 0 0 14px rgba(255, 198, 44, 0.72), 0 4px 0 rgba(0, 0, 0, 0.55);
+        box-shadow: 0 0 8px rgba(255, 198, 44, 0.65), 0 3px 0 rgba(0, 0, 0, 0.55);
       }
 
       #touch-fever.burning {
