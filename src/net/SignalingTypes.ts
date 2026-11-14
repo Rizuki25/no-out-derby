@@ -1,4 +1,4 @@
-import {
+import type {
   AIDifficulty,
   ArenaId,
   ControlStyle,
@@ -6,7 +6,7 @@ import {
   MatchDurationOption,
   PitchSize,
   TeamKitId,
-} from '../types';
+} from '../types.js';
 
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const ROOM_CODE_LENGTH = 4;

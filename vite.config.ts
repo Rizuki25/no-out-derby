@@ -6,9 +6,9 @@ import {
   handleSignalingRequest,
   sanitizeCandidateList,
   type RoomStore,
-} from './src/net/SignalingHandler';
-import { createUpstashRoomStore } from './src/net/UpstashRoomStore';
-import type { IceCandidateDTO, RoomRecord, SessionDescriptionDTO } from './src/net/SignalingTypes';
+} from './src/net/SignalingHandler.js';
+import { createUpstashRoomStore } from './src/net/UpstashRoomStore.js';
+import type { IceCandidateDTO, RoomRecord, SessionDescriptionDTO } from './src/net/SignalingTypes.js';
 
 /**
  * Dev-only Vite middleware store used strictly during `npm run dev` when local `.env.local`

@@ -1,25 +1,25 @@
 import {
   generateRoomCode,
-  IceCandidateDTO,
+  type IceCandidateDTO,
   isValidRoomCode,
   MAX_CANDIDATES_PER_SIDE,
   ONLINE_MODE_OPTIONS,
-  OnlineGameMode,
-  OnlineRoomConfig,
-  PublicRoomState,
+  type OnlineGameMode,
+  type OnlineRoomConfig,
+  type PublicRoomState,
   ROOM_TTL_SECONDS,
-  RoomRecord,
+  type RoomRecord,
   sanitizeRoomCode,
-  SessionDescriptionDTO,
-} from './SignalingTypes';
-import {
+  type SessionDescriptionDTO,
+} from './SignalingTypes.js';
+import type {
   AIDifficulty,
   ArenaId,
   ControlStyle,
   MatchDurationOption,
   PitchSize,
   TeamKitId,
-} from '../types';
+} from '../types.js';
 
 export interface RoomStore {
   isConfigured(): boolean;

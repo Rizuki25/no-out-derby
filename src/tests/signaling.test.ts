@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
-import roomsEndpoint from '../../api/rooms.ts';
+import roomsEndpoint from '../../api/rooms.js';
 import {
   handleSignalingRequest,
   type RoomStore,
@@ -237,5 +240,26 @@ describe('Online Room Signaling & Validation', () => {
     expect(toOnlineGameMode('derby_cup_4v4')).toBe('4v4_local');
     expect(toOnlineGameMode('3v3_coop')).toBe('3v3_coop');
     expect(toOnlineGameMode('1v1_ai')).toBe('1v1_local');
+  });
+
+  it('uses explicit .js extensions for all serverless ESM relative imports required by Vercel Node runtime', () => {
+    const serverFiles = [
+      'api/rooms.ts',
+      'src/net/SignalingHandler.ts',
+      'src/net/SignalingTypes.ts',
+      'src/net/UpstashRoomStore.ts',
+    ];
+    for (const relPath of serverFiles) {
+      const source = readFileSync(resolve(process.cwd(), relPath), 'utf8');
+      const info = ts.preProcessFile(source, true, true);
+      for (const imp of info.importedFiles) {
+        if (imp.fileName.startsWith('./') || imp.fileName.startsWith('../')) {
+          expect(
+            imp.fileName.endsWith('.js'),
+            `${relPath} imports '${imp.fileName}' without .js extension (breaks Vercel Node ESM)`
+          ).toBe(true);
+        }
+      }
+    }
   });
 });

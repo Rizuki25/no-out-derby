@@ -2,13 +2,13 @@ import { Redis } from '@upstash/redis';
 import {
   type RoomStore,
   sanitizeCandidateList,
-} from './SignalingHandler';
+} from './SignalingHandler.js';
 import {
   type IceCandidateDTO,
   MAX_CANDIDATES_PER_SIDE,
   type RoomRecord,
   type SessionDescriptionDTO,
-} from './SignalingTypes';
+} from './SignalingTypes.js';
 
 interface BaseRoomPayload {
   code: string;
