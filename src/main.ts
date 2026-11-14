@@ -96,7 +96,6 @@ function initApp(): void {
   let recordedCurrentResult = false;
   let localOnlinePaused = false;
   let pendingGuestDirectTactic: TeamTactic | null = null;
-  let fixedUpdatesThisFrame = 0;
   let lastCanvasW = 0;
   let lastCanvasH = 0;
 
@@ -959,7 +958,6 @@ function initApp(): void {
         sound.setBgmFastMode(match.isFinalStretch() || match.isGoldenGoal);
       }
 
-      fixedUpdatesThisFrame++;
       input.endFrame();
     },
     () => {
@@ -1011,13 +1009,6 @@ function initApp(): void {
       ui.update(rawDt);
       renderer.updateEffects(rawDt, match);
       syncMobileLayoutAndHud();
-    },
-    () => {
-      // Hitstop frames run no fixed update, so close the input frame here to stop edges piling up.
-      if (fixedUpdatesThisFrame === 0) {
-        input.endFrame();
-      }
-      fixedUpdatesThisFrame = 0;
     }
   );
 

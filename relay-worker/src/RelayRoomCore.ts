@@ -114,7 +114,8 @@ export function sanitizeRelayConfig(raw: unknown): RelayRoomConfig | null {
       typeof r.durationSeconds === 'number' && VALID_DURATIONS.has(r.durationSeconds)
         ? r.durationSeconds
         : 90,
-    mutatorsEnabled: Boolean(r.mutatorsEnabled),
+    // Must mirror the signaling handler: a missing/non-boolean value defaults to ON, not OFF.
+    mutatorsEnabled: typeof r.mutatorsEnabled === 'boolean' ? r.mutatorsEnabled : true,
   };
 }
 

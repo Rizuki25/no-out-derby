@@ -1,4 +1,5 @@
 import type { MatchConfig } from '../types.ts';
+import { resolvePitchSizeForMode } from '../game/MatchState.ts';
 import {
   isValidRoomCode,
   ONLINE_MODE_OPTIONS,
@@ -222,11 +223,10 @@ export class OnlineLobbyUI {
 
   private buildHostRoomConfig(): OnlineRoomConfig {
     const base = this.callbacks.getMenuConfig();
-    const isFour = this.selectedFormat === '4v4_local' || this.selectedFormat === '4v4_coop';
     return {
       mode: this.selectedFormat,
       arena: base.arena ?? 'classic',
-      pitchSize: isFour ? 'xl' : base.pitchSize ?? 'standard',
+      pitchSize: resolvePitchSizeForMode(this.selectedFormat, base.pitchSize),
       controlStyle: base.controlStyle ?? 'dribble',
       teamAKit: base.teamAKit ?? 'garuda',
       teamBKit: base.teamBKit ?? 'cyber',
@@ -294,8 +294,7 @@ export class OnlineLobbyUI {
 
   private renderHostState(): void {
     const base = this.callbacks.getMenuConfig();
-    const isFour = this.selectedFormat === '4v4_local' || this.selectedFormat === '4v4_coop';
-    const pitch = isFour ? 'STADIUM XL' : (base.pitchSize ?? 'standard').toUpperCase();
+    const pitch = resolvePitchSizeForMode(this.selectedFormat, base.pitchSize).toUpperCase();
     const ctrl = (base.controlStyle ?? 'dribble').toUpperCase();
     const mut = base.mutatorsEnabled ? 'CHAOS ON' : 'CLASSIC';
 

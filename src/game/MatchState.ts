@@ -23,6 +23,17 @@ import { createDefaultTeamModifiers, DerbyCupState } from './DerbyCup.ts';
 import { MutatorManager } from './MutatorManager.ts';
 import type { NetStateSnapshot } from '../net/NetSnapshot.ts';
 
+/** 4v4 always plays on Stadium XL; other formats honour the configured pitch size. */
+export function resolvePitchSizeForMode(
+  mode: MatchState['config']['mode'] | string,
+  pitchSize: string | undefined
+): 'standard' | 'large' | 'xl' {
+  const isFourVsFour =
+    mode === '4v4_ai' || mode === 'derby_cup_4v4' || mode === '4v4_local' || mode === '4v4_coop';
+  if (isFourVsFour) return 'xl';
+  return pitchSize === 'large' || pitchSize === 'xl' ? pitchSize : 'standard';
+}
+
 export class MatchState {
   public phase: MatchPhase = 'MENU';
   public config: MatchConfig = {
@@ -105,16 +116,11 @@ export class MatchState {
       config.mode === 'derby_cup_2v2' ||
       config.mode === 'derby_cup_3v3' ||
       config.mode === 'derby_cup_4v4';
-    const isFourVsFour =
-      config.mode === '4v4_ai' ||
-      config.mode === 'derby_cup_4v4' ||
-      config.mode === '4v4_local' ||
-      config.mode === '4v4_coop';
     const isSandbox = config.mode === 'practice_sandbox';
     this.config = {
       ...config,
       arena: config.arena ?? 'classic',
-      pitchSize: isFourVsFour ? 'xl' : (config.pitchSize ?? 'standard'),
+      pitchSize: resolvePitchSizeForMode(config.mode, config.pitchSize ?? 'standard'),
       controlStyle: config.controlStyle ?? 'classic',
       displayMode: config.displayMode ?? 'auto',
       teamAKit: config.teamAKit ?? 'garuda',
@@ -1164,12 +1170,12 @@ export class MatchState {
       z: b.z,
       vz: b.vz,
       radius: b.r,
-      mass: 1,
-      spin: 0,
+      mass: b.m,
+      spin: b.sp,
       rollAngle: b.ra,
       lastTouchTeam: null,
       lastTouchPlayerId: null,
-      lastKickPower: 0,
+      lastKickPower: b.lk,
       untouchedTimer: b.ut,
       hotPotatoBeepAccum: 0,
       isExtraBall: b.ex,
@@ -1187,7 +1193,7 @@ export class MatchState {
       y: p.y,
       vx: p.vx,
       vy: p.vy,
-      radius: p.role === 'keeper' ? 9 : 8.5,
+      radius: p.r,
       facingX: p.fx,
       facingY: p.fy,
       isCharging: p.ic,

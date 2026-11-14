@@ -929,6 +929,14 @@ export class InputManager {
       };
     };
 
+    const tryCapturePointer = (el: HTMLElement, pointerId: number) => {
+      try {
+        el.setPointerCapture?.(pointerId);
+      } catch {
+        // Ignore runtimes/synthetic events that reject pointer capture.
+      }
+    };
+
     const invalidateStickBounds = () => {
       stickBounds = null;
     };
@@ -966,20 +974,22 @@ export class InputManager {
       e.stopPropagation();
       if (e.pointerType === 'touch') this.hasTouchSeen = true;
       stickPointerId = e.pointerId;
-      stickBase.setPointerCapture?.(e.pointerId);
+      tryCapturePointer(stickBase, e.pointerId);
       stickBounds = readStickBounds();
       updateStick(e.clientX, e.clientY);
     });
 
-    this.listen<PointerEvent>(stickBase, 'pointermove', (e: PointerEvent) => {
+    const moveStick = (e: PointerEvent) => {
       if (e.pointerId !== stickPointerId) return;
-      e.preventDefault();
+      if (e.cancelable && e.currentTarget === stickBase) e.preventDefault();
       updateStick(e.clientX, e.clientY);
-    });
+    };
+    this.listen<PointerEvent>(stickBase, 'pointermove', moveStick);
+    this.listen<PointerEvent>(window, 'pointermove', moveStick);
 
     const releaseStick = (e: PointerEvent) => {
       if (e.pointerId !== stickPointerId) return;
-      e.preventDefault();
+      if (e.cancelable && e.currentTarget === stickBase) e.preventDefault();
       stickPointerId = null;
       stickBounds = null;
       setKnobTransform(0, 0);
@@ -988,20 +998,22 @@ export class InputManager {
     };
     this.listen<PointerEvent>(stickBase, 'pointerup', releaseStick);
     this.listen<PointerEvent>(stickBase, 'pointercancel', releaseStick);
-    this.listen<PointerEvent>(stickBase, 'lostpointercapture', releaseStick);
+    this.listen<PointerEvent>(window, 'pointerup', releaseStick);
+    this.listen<PointerEvent>(window, 'pointercancel', releaseStick);
 
     this.listen<PointerEvent>(kickBtn, 'pointerdown', (e: PointerEvent) => {
       e.preventDefault();
       e.stopPropagation();
       if (e.pointerType === 'touch') this.hasTouchSeen = true;
+      if (kickPointerId !== null && kickPointerId !== e.pointerId) return;
       kickPointerId = e.pointerId;
-      kickBtn.setPointerCapture?.(e.pointerId);
+      tryCapturePointer(kickBtn, e.pointerId);
       this.touchKickHeld = true;
       kickBtn.classList.add('pressed');
     });
     const endKick = (e: PointerEvent) => {
       if (e.pointerId !== kickPointerId) return;
-      e.preventDefault();
+      if (e.cancelable && e.currentTarget === kickBtn) e.preventDefault();
       kickPointerId = null;
       if (this.touchKickHeld) {
         this.touchKickHeld = false;
@@ -1009,9 +1021,11 @@ export class InputManager {
       }
       kickBtn.classList.remove('pressed');
     };
+    // Listen on both kickBtn and window so sliding outside the button or rejected capture never drops kick release.
     this.listen<PointerEvent>(kickBtn, 'pointerup', endKick);
     this.listen<PointerEvent>(kickBtn, 'pointercancel', endKick);
-    this.listen<PointerEvent>(kickBtn, 'lostpointercapture', endKick);
+    this.listen<PointerEvent>(window, 'pointerup', endKick);
+    this.listen<PointerEvent>(window, 'pointercancel', endKick);
 
     const bindTapActionButton = (el: HTMLElement | null, onPress: () => void) => {
       if (!el) return;
@@ -1025,19 +1039,20 @@ export class InputManager {
         e.stopPropagation();
         if (e.pointerType === 'touch') this.hasTouchSeen = true;
         activePointerId = e.pointerId;
-        el.setPointerCapture?.(e.pointerId);
+        tryCapturePointer(el, e.pointerId);
         onPress();
         el.classList.add('pressed');
       });
       const endPress = (e: PointerEvent) => {
         if (e.pointerId !== activePointerId) return;
-        e.preventDefault();
+        if (e.cancelable && e.currentTarget === el) e.preventDefault();
         activePointerId = null;
         el.classList.remove('pressed');
       };
       this.listen<PointerEvent>(el, 'pointerup', endPress);
       this.listen<PointerEvent>(el, 'pointercancel', endPress);
-      this.listen<PointerEvent>(el, 'lostpointercapture', endPress);
+      this.listen<PointerEvent>(window, 'pointerup', endPress);
+      this.listen<PointerEvent>(window, 'pointercancel', endPress);
     };
 
     bindTapActionButton(dashBtn, () => {

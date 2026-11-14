@@ -455,7 +455,8 @@ export class PhysicsEngine {
             p.isCharging = true;
             p.chargeTime = Math.min(ARENA_CONSTANTS.MAX_CHARGE_TIME, p.chargeTime + dt);
           }
-          if (input.kickJustReleased) {
+          // Treat any release from an active charge (even if a frame edge dropped) as a shot release.
+          if (input.kickJustReleased || (!input.kickHeld && p.isCharging)) {
             const chargeRatio = Math.min(1, p.chargeTime / ARENA_CONSTANTS.MAX_CHARGE_TIME);
             p.isCharging = false;
             p.chargeTime = 0;
@@ -466,9 +467,6 @@ export class PhysicsEngine {
             p.kickSwingDirY = p.facingY;
             p.animState = 'kick';
             p.animTime = 0;
-          } else if (!input.kickHeld && p.isCharging) {
-            p.isCharging = false;
-            p.chargeTime = 0;
           }
         }
       }

@@ -526,3 +526,171 @@ describe('Medium-priority fixes', () => {
     expect(store.loadPreferences({ ...base, replayEnabled: true }).config.replayEnabled).toBe(false);
   });
 });
+
+describe('Mobile touch kick hold & release reliability', () => {
+  it('fires touch kick release reliably across stray secondary touches, failed pointer capture, and off-button window release', () => {
+    const createMockTarget = () => {
+      const listeners = new Map<string, Set<(ev: Event) => void>>();
+      const classes = new Set<string>();
+      const style: Record<string, string> = {};
+      return {
+        style,
+        dataset: {},
+        textContent: '',
+        innerWidth: 800,
+        innerHeight: 450,
+        querySelector: () => null,
+        classList: {
+          add: (c: string) => classes.add(c),
+          remove: (c: string) => classes.delete(c),
+          toggle: (c: string, force?: boolean) => {
+            if (force === undefined) {
+              if (classes.has(c)) classes.delete(c);
+              else classes.add(c);
+            } else if (force) classes.add(c);
+            else classes.delete(c);
+          },
+          contains: (c: string) => classes.has(c),
+        },
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 120, height: 120 }),
+        setPointerCapture: () => {
+          throw new Error('capture rejected');
+        },
+        addEventListener: (type: string, fn: (ev: Event) => void) => {
+          let set = listeners.get(type);
+          if (!set) {
+            set = new Set();
+            listeners.set(type, set);
+          }
+          set.add(fn);
+        },
+        removeEventListener: (type: string, fn: (ev: Event) => void) => {
+          listeners.get(type)?.delete(fn);
+        },
+        dispatchEvent: (ev: Event & { currentTarget?: unknown }) => {
+          for (const fn of [...(listeners.get(ev.type) ?? [])]) {
+            fn({ ...ev, currentTarget: ev.currentTarget ?? undefined } as Event);
+          }
+          return true;
+        },
+      };
+    };
+
+    const winTarget = createMockTarget();
+    const elements: Record<string, ReturnType<typeof createMockTarget>> = {
+      'touch-stick-base': createMockTarget(),
+      'touch-stick-knob': createMockTarget(),
+      'touch-kick': createMockTarget(),
+      'touch-dash': createMockTarget(),
+      'touch-switch': createMockTarget(),
+    };
+    const origWindow = (globalThis as { window?: unknown }).window;
+    const origDocument = (globalThis as { document?: unknown }).document;
+    const origNav = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+
+    Object.defineProperty(globalThis, 'window', { value: winTarget, configurable: true });
+    Object.defineProperty(globalThis, 'document', {
+      value: {
+        documentElement: createMockTarget(),
+        getElementById: (id: string) => elements[id] ?? null,
+        querySelectorAll: () => [],
+      },
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { getGamepads: () => [], maxTouchPoints: 5 },
+      configurable: true,
+    });
+
+    const input = new InputManager();
+    try {
+      input.syncMobileHud({
+        visibility: {
+          showOverlay: true,
+          showMenuBar: false,
+          showGameplayControls: true,
+          showSwitchButton: false,
+          showTacticButton: false,
+          showReplaySkip: false,
+          showSandboxBar: false,
+        },
+        controlStyle: 'dribble',
+        displayMode: 'auto',
+        muted: false,
+        kickChargeRatio: 0,
+        dashOnCooldown: false,
+        portraitDeck: false,
+        isFullscreen: false,
+        isPortrait: false,
+      });
+
+      const makePtr = (type: string, pointerId: number) => ({
+        type,
+        pointerId,
+        pointerType: 'touch',
+        cancelable: true,
+        clientX: 0,
+        clientY: 0,
+        preventDefault: () => undefined,
+        stopPropagation: () => undefined,
+      });
+
+      const kickEl = elements['touch-kick'];
+      // Hold with finger 1 (even if setPointerCapture throws, kickHeld must still engage)
+      kickEl.dispatchEvent({ ...makePtr('pointerdown', 1), currentTarget: kickEl } as unknown as Event);
+      expect(input.getPlayerInputs(false).p1.kickHeld).toBe(true);
+      input.endFrame();
+
+      // Secondary stray finger grazing kick button must not steal ownership or drop hold
+      kickEl.dispatchEvent({ ...makePtr('pointerdown', 2), currentTarget: kickEl } as unknown as Event);
+      winTarget.dispatchEvent(makePtr('pointerup', 2) as unknown as Event);
+      expect(input.getPlayerInputs(false).p1.kickHeld).toBe(true);
+      expect(input.getPlayerInputs(false).p1.kickJustReleased).toBe(false);
+      input.endFrame();
+
+      // Finger 1 sliding outside button fires pointerup on window -> must still fire kickJustReleased
+      winTarget.dispatchEvent(makePtr('pointerup', 1) as unknown as Event);
+      const released = input.getPlayerInputs(false).p1;
+      expect(released.kickHeld).toBe(false);
+      expect(released.kickJustReleased).toBe(true);
+    } finally {
+      input.destroy();
+      Object.defineProperty(globalThis, 'window', { value: origWindow, configurable: true });
+      Object.defineProperty(globalThis, 'document', { value: origDocument, configurable: true });
+      if (origNav) Object.defineProperty(globalThis, 'navigator', origNav);
+    }
+  });
+
+  it('still executes charged kick in PhysicsEngine if kickHeld drops without kickJustReleased', () => {
+    const engine = new PhysicsEngine();
+    const bounds = createArenaBounds(1.0);
+    const params = createDefaultPhysicsParams();
+    params.controlStyle = 'dribble';
+
+    const shooter = makePlayer({
+      id: 1,
+      x: 240,
+      y: ARENA_CONSTANTS.CENTER_Y,
+      facingX: 1,
+      facingY: 0,
+      isCharging: true,
+      chargeTime: 0.5,
+    });
+    const ball = makeBall({ x: 252, y: ARENA_CONSTANTS.CENTER_Y, carrierId: shooter.id });
+
+    const res = engine.step(
+      FIXED_DT,
+      [ball],
+      [shooter],
+      new Map([[1, { ...createEmptyInput(), moveX: 1, kickHeld: false, kickJustReleased: false }]]),
+      bounds,
+      params,
+      true
+    );
+
+    expect(res.events.some((e) => e.type === 'kick')).toBe(true);
+    expect(shooter.isCharging).toBe(false);
+    expect(ball.carrierId).toBeNull();
+    expect(Math.hypot(ball.vx, ball.vy)).toBeGreaterThan(250);
+  });
+});

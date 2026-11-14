@@ -39,12 +39,18 @@ export interface NetBallState {
   z: number;
   vz: number;
   r: number;
+  /** Mass drives knockback & shot speed scaling, so Giant Ball must survive the wire. */
+  m: number;
+  /** Magnus curve spin; the Guest renderer tints the trail from it. */
+  sp: number;
   ra: number;
   ut: number;
   cid: number | null;
   ex: boolean;
   ot: number;
   ft: number;
+  /** Kick power of the last strike, used for ROCKET/highlight callouts on the Guest. */
+  lk: number;
 }
 
 export interface NetPlayerState {
@@ -58,6 +64,8 @@ export interface NetPlayerState {
   vy: number;
   fx: number;
   fy: number;
+  /** Authoritative collision radius; the Guest must render/interpolate with the Host value. */
+  r: number;
   st: PlayerAnimState;
   at: number;
   su: number;
@@ -377,12 +385,15 @@ export function buildNetSnapshot(
       z: round2(b.z),
       vz: round1(b.vz),
       r: round1(b.radius),
+      m: round2(b.mass),
+      sp: round2(b.spin),
       ra: round2(b.rollAngle),
       ut: round2(b.untouchedTimer),
       cid: b.carrierId ?? null,
       ex: b.isExtraBall,
       ot: round2(b.oneTimerTimer ?? 0),
       ft: round2(b.feverTimer ?? 0),
+      lk: round2(b.lastKickPower),
     })),
     players: source.players.map((p) => ({
       id: p.id,
@@ -395,6 +406,7 @@ export function buildNetSnapshot(
       vy: round1(p.vy),
       fx: round3(p.facingX),
       fy: round3(p.facingY),
+      r: round1(p.radius),
       st: p.animState,
       at: round2(p.animTime),
       su: round2(p.stunTimer),
