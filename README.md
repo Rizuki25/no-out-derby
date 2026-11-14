@@ -97,7 +97,11 @@ Repositori sudah dilengkapi [`vercel.json`](./vercel.json) (preset Vite -> build
 1. Push repo ke GitHub.
 2. Buka [Vercel](https://vercel.com), klik **Add New Project**, lalu import repo `no-out-derby` (Build Command `npm run build`, Output Directory `dist`).
 3. **Untuk mengaktifkan Online P2P Multiplayer (`ONLINE P2P [O]`):** Buka tab **Storage / Integrations** di proyek Vercel, pasang **Upstash Redis** agar variabel lingkungan `UPSTASH_REDIS_REST_URL` dan `UPSTASH_REDIS_REST_TOKEN` (atau `KV_REST_API_URL` & `KV_REST_API_TOKEN`) terisi otomatis lalu redeploy. *(Jika Redis belum terpasang, `/api/rooms` mengembalikan HTTP `503 REDIS_NOT_CONFIGURED`; selama `npm run dev` lokal, middleware Vite otomatis menyediakan room store sementara.)*
-4. Buka URL `.vercel.app` dari PC atau HP (mode **Mobile Pad** aktif otomatis lewat `VIEW: AUTO`), atau uji link undangan langsung dengan `?room=XXXX`.
+4. **Opsional — Server TURN Relay (untuk main beda jaringan / HP 4G CGNAT <-> Wi-Fi):** Tanpa TURN, koneksi WebRTC antar NAT ketat/CGNAT seluler dapat terblokir (`ICE_FAILED`). Anda dapat memasang salah satu grup Environment Variables gratis berikut di Vercel Project -> Settings -> Environment Variables (dibaca otomatis oleh `GET /api/rooms?ice=1`):
+   - **Metered.ca:** `METERED_TURN_DOMAIN` + `METERED_TURN_API_KEY`
+   - **Cloudflare Realtime TURN:** `CLOUDFLARE_TURN_TOKEN_ID` + `CLOUDFLARE_TURN_API_TOKEN`
+   - **Static TURN (mis. ExpressTURN / CoTURN):** `TURN_URLS` (dipisah koma) + `TURN_USERNAME` + `TURN_CREDENTIAL`
+5. Buka URL `.vercel.app` dari PC atau HP (mode **Mobile Pad** aktif otomatis lewat `VIEW: AUTO`), atau uji link undangan langsung dengan `?room=XXXX`.
 
 ---
 
@@ -136,6 +140,7 @@ no-out-derby/
     │   ├── MobileLayout.ts     # Deteksi mode mobile, ukuran canvas Portrait/Landscape & HUD state
     │   └── MutatorManager.ts   # Penjadwalan & efek 6 Chaos Mutators
     ├── net/
+    │   ├── IceConfig.ts        # Resolver TURN/STUN dinamis dari env Vercel (/api/rooms?ice=1)
     │   ├── NetSnapshot.ts      # Edge-counter input decoder, snapshot builder & Guest interpolator
     │   ├── OnlineLobbyUI.ts    # Modal UI Host/Join Online Room & tautan undangan ?room=XXXX
     │   ├── OnlineSession.ts    # Koordinator WebRTC Host-Authoritative 60Hz & sinkronisasi Guest

@@ -2,6 +2,7 @@
 import { defineConfig } from 'vitest/config';
 import { loadEnv } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { resolveIceServers } from './src/net/IceConfig.js';
 import {
   handleSignalingRequest,
   sanitizeCandidateList,
@@ -115,7 +116,9 @@ function attachDevSignalingPlugin(mode: string) {
             headers: req.headers as Record<string, string>,
             body: method === 'GET' || method === 'HEAD' ? undefined : bodyStr || undefined,
           });
-          const response = await handleSignalingRequest(request, store);
+          const response = await handleSignalingRequest(request, store, () =>
+            resolveIceServers(env)
+          );
           res.statusCode = response.status;
           response.headers.forEach((v, k) => res.setHeader(k, v));
           res.end(await response.text());

@@ -408,9 +408,12 @@
        serta channel reliable untuk ping RTT, sinyal rematch & status putus.
      - Endpoint /api/rooms (api/rooms.ts) menyimpan SDP offer/answer & trickle
        ICE candidates di Upstash Redis dengan TTL 180 detik.
-     - Env var yang dibaca: UPSTASH_REDIS_REST_URL & UPSTASH_REDIS_REST_TOKEN
-       (atau KV_REST_API_URL & KV_REST_API_TOKEN dari Vercel Storage). Bila
-       belum dipasang, produksi mengembalikan 503 REDIS_NOT_CONFIGURED (saat
-       pengembangan lokal `npm run dev`, middleware Vite menyediakan store dev).
+     - Env var Redis: UPSTASH_REDIS_REST_URL & UPSTASH_REDIS_REST_TOKEN (atau
+       KV_REST_API_URL & KV_REST_API_TOKEN dari Vercel Storage). Bila belum ada,
+       produksi mengembalikan 503 REDIS_NOT_CONFIGURED (dev memakai dev store).
+     - Opsional TURN Relay (/api/rooms?ice=1): Pasang salah satu dari:
+       METERED_TURN_DOMAIN + METERED_TURN_API_KEY, CLOUDFLARE_TURN_TOKEN_ID +
+       CLOUDFLARE_TURN_API_TOKEN, atau TURN_URLS + TURN_USERNAME + TURN_CREDENTIAL
+       agar koneksi lintas Wi-Fi <-> 4G CGNAT tidak terblokir NAT/Firewall.
 
 ======================================================================================

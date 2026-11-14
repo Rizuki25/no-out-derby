@@ -3,19 +3,21 @@ import { resolve } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import roomsEndpoint from '../../api/rooms.js';
+import { clearIceCache, resolveIceServers } from '../net/IceConfig.js';
 import {
   handleSignalingRequest,
   type RoomStore,
   sanitizeCandidateList,
-} from '../net/SignalingHandler.ts';
+} from '../net/SignalingHandler.js';
 import {
   type IceCandidateDTO,
+  type IceServersResponse,
   isValidRoomCode,
   type RoomRecord,
   sanitizeRoomCode,
   type SessionDescriptionDTO,
   toOnlineGameMode,
-} from '../net/SignalingTypes.ts';
+} from '../net/SignalingTypes.js';
 
 function createTestStore(configured = true): RoomStore {
   const rooms = new Map<string, RoomRecord>();
@@ -245,6 +247,7 @@ describe('Online Room Signaling & Validation', () => {
   it('uses explicit .js extensions for all serverless ESM relative imports required by Vercel Node runtime', () => {
     const serverFiles = [
       'api/rooms.ts',
+      'src/net/IceConfig.ts',
       'src/net/SignalingHandler.ts',
       'src/net/SignalingTypes.ts',
       'src/net/UpstashRoomStore.ts',
@@ -261,5 +264,73 @@ describe('Online Room Signaling & Validation', () => {
         }
       }
     }
+  });
+
+  it('serves GET ?ice=1 even without Redis and resolves Metered, Cloudflare, custom TURN, and STUN fallback', async () => {
+    clearIceCache();
+    const unconfiguredStore = createTestStore(false);
+    const iceRes = await handleSignalingRequest(
+      makeReq('/api/rooms?ice=1', 'GET'),
+      unconfiguredStore
+    );
+    expect(iceRes.status).toBe(200);
+    const defaultIce = (await iceRes.json()) as IceServersResponse;
+    expect(defaultIce.hasTurn).toBe(false);
+    expect(defaultIce.provider).toBe('stun-only');
+    expect(defaultIce.iceServers.length).toBeGreaterThanOrEqual(2);
+
+    // Metered TURN mock
+    clearIceCache();
+    const metered = await resolveIceServers(
+      { METERED_TURN_DOMAIN: 'https://demo.metered.live/', METERED_TURN_API_KEY: 'key123' },
+      (async () =>
+        new Response(
+          JSON.stringify([
+            { urls: 'stun:stun.relay.metered.ca:80' },
+            { urls: 'turn:global.relay.metered.ca:443?transport=tcp', username: 'u', credential: 'p' },
+          ]),
+          { status: 200 }
+        )) as typeof fetch
+    );
+    expect(metered.provider).toBe('metered');
+    expect(metered.hasTurn).toBe(true);
+
+    // Cloudflare TURN mock
+    clearIceCache();
+    const cf = await resolveIceServers(
+      { CLOUDFLARE_TURN_TOKEN_ID: 'cf_id', CLOUDFLARE_TURN_API_TOKEN: 'cf_tok' },
+      (async () =>
+        new Response(
+          JSON.stringify({
+            iceServers: {
+              urls: ['stun:stun.cloudflare.com:3478', 'turns:turn.cloudflare.com:5349?transport=tcp'],
+              username: 'cf_u',
+              credential: 'cf_c',
+            },
+          }),
+          { status: 200 }
+        )) as typeof fetch
+    );
+    expect(cf.provider).toBe('cloudflare');
+    expect(cf.hasTurn).toBe(true);
+
+    // Custom static TURN
+    clearIceCache();
+    const custom = await resolveIceServers({
+      TURN_URLS: 'turn:free.expressturn.com:3478, turns:free.expressturn.com:5349',
+      TURN_USERNAME: 'u1',
+      TURN_CREDENTIAL: 'c1',
+    });
+    expect(custom.provider).toBe('custom');
+    expect(custom.hasTurn).toBe(true);
+
+    // Upstream TURN error safely falls back to stun-only
+    clearIceCache();
+    const degraded = await resolveIceServers(
+      { METERED_TURN_DOMAIN: 'demo.metered.live', METERED_TURN_API_KEY: 'bad' },
+      (async () => new Response('down', { status: 502 })) as typeof fetch
+    );
+    expect(degraded.provider).toBe('stun-only');
+    expect(degraded.hasTurn).toBe(false);
   });
 });

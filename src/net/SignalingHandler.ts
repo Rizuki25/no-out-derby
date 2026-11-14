@@ -1,6 +1,8 @@
 import {
+  DEFAULT_STUN_SERVERS,
   generateRoomCode,
   type IceCandidateDTO,
+  type IceServersResponse,
   isValidRoomCode,
   MAX_CANDIDATES_PER_SIDE,
   ONLINE_MODE_OPTIONS,
@@ -189,11 +191,26 @@ function toPublicRoomState(record: RoomRecord): PublicRoomState {
   };
 }
 
-/** Handles WebRTC room creation, lookup, joining, ICE exchange, and cleanup. */
+/** Handles WebRTC ICE config lookup, room creation, lookup, joining, ICE exchange, and cleanup. */
 export async function handleSignalingRequest(
   request: Request,
-  store: RoomStore
+  store: RoomStore,
+  getIceConfig?: () => Promise<IceServersResponse>
 ): Promise<Response> {
+  const url = new URL(request.url);
+  const method = request.method.toUpperCase();
+
+  if (method === 'GET' && url.searchParams.get('ice') === '1') {
+    const ice = getIceConfig
+      ? await getIceConfig()
+      : {
+          iceServers: [...DEFAULT_STUN_SERVERS],
+          hasTurn: false,
+          provider: 'stun-only' as const,
+        };
+    return jsonResponse(200, ice);
+  }
+
   if (!store.isConfigured()) {
     return jsonResponse(503, {
       error: 'REDIS_NOT_CONFIGURED',
@@ -201,9 +218,6 @@ export async function handleSignalingRequest(
         'Signaling Redis belum dikonfigurasi di Vercel. Hubungkan Upstash Redis di Vercel Dashboard -> Stores.',
     });
   }
-
-  const url = new URL(request.url);
-  const method = request.method.toUpperCase();
 
   if (method === 'GET') {
     const code = sanitizeRoomCode(url.searchParams.get('code') ?? '');

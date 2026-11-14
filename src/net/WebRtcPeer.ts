@@ -5,7 +5,10 @@ import {
   type NetStateSnapshot,
 } from './NetSnapshot.ts';
 import {
+  DEFAULT_STUN_SERVERS,
   type IceCandidateDTO,
+  type IceServerEntry,
+  type IceServersResponse,
   type OnlineRoomConfig,
   type PublicRoomState,
   sanitizeRoomCode,
@@ -34,12 +37,10 @@ export interface PeerCallbacks {
   onError?: (code: string, message: string) => void;
 }
 
-const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ],
-};
+function parseCandidateType(cand: string): string {
+  const match = /\btyp\s+(host|srflx|prflx|relay)\b/i.exec(cand);
+  return match ? match[1].toLowerCase() : 'unknown';
+}
 
 function serializeCandidate(cand: RTCIceCandidate): IceCandidateDTO {
   return {
@@ -77,6 +78,38 @@ async function signalingFetch<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+/** Fetches ICE (STUN + optional TURN) server list from `/api/rooms?ice=1` with STUN fallback. */
+export async function fetchIceConfig(signal?: AbortSignal): Promise<IceServersResponse> {
+  const fallback: IceServersResponse = {
+    iceServers: [...DEFAULT_STUN_SERVERS],
+    hasTurn: false,
+    provider: 'stun-only',
+  };
+  if (signal?.aborted) return fallback;
+
+  const ac = new AbortController();
+  const timeoutId = setTimeout(() => ac.abort(), 1800);
+  const onParentAbort = () => ac.abort();
+  signal?.addEventListener('abort', onParentAbort, { once: true });
+
+  try {
+    const data = await signalingFetch<IceServersResponse>('/api/rooms?ice=1', {
+      method: 'GET',
+      cache: 'no-store',
+      signal: ac.signal,
+    });
+    if (Array.isArray(data.iceServers) && data.iceServers.length > 0) {
+      return data;
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  } finally {
+    clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', onParentAbort);
+  }
+}
+
 /** Fetches public room metadata (config & offer) to preview before or during join. */
 export async function lookupSignalingRoom(rawCode: string, signal?: AbortSignal): Promise<PublicRoomState> {
   const code = sanitizeRoomCode(rawCode);
@@ -112,6 +145,9 @@ export class WebRtcPeer {
   private sentCandidateKeys = new Set<string>();
   private addedRemoteCandidateKeys = new Set<string>();
   private queuedRemoteCandidates: IceCandidateDTO[] = [];
+  private localCandTypes = new Set<string>();
+  private remoteCandTypes = new Set<string>();
+  private iceHasTurn = false;
   private remoteDescriptionReady = false;
   private signalingReadyForCandidates = false;
   private hasEmittedConnected = false;
@@ -153,15 +189,19 @@ export class WebRtcPeer {
     this.callbacks.onPhaseChange?.(next, detail);
   }
 
-  private createPeerConnection(): RTCPeerConnection {
+  private createPeerConnection(iceServers: IceServerEntry[]): RTCPeerConnection {
     if (typeof RTCPeerConnection !== 'function') {
       throw new SignalingError('WEBRTC_UNSUPPORTED', 'Browser ini belum mendukung WebRTC.');
     }
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection({
+      iceServers,
+      iceCandidatePoolSize: 2,
+    });
 
     pc.onicecandidate = (ev) => {
       if (!ev.candidate || !ev.candidate.candidate || this.closed) return;
       const dto = serializeCandidate(ev.candidate);
+      this.localCandTypes.add(parseCandidateType(dto.candidate));
       const k = candidateKey(dto);
       if (this.sentCandidateKeys.has(k)) return;
       this.localCandidates.push(dto);
@@ -198,7 +238,20 @@ export class WebRtcPeer {
         if (this.hasEmittedConnected) {
           this.triggerDisconnect('Koneksi P2P gagal / terputus.');
         } else {
-          this.fail('ICE_FAILED', 'Gagal terhubung P2P (diblokir NAT/Firewall). Coba jaringan lain.');
+          const localTypes = Array.from(this.localCandTypes);
+          const remoteTypes = Array.from(this.remoteCandTypes);
+          console.warn('[WebRtcPeer] ICE_FAILED diagnostics:', {
+            role: this.role,
+            hasTurn: this.iceHasTurn,
+            connState,
+            iceState,
+            localTypes,
+            remoteTypes,
+          });
+          const msg = this.iceHasTurn
+            ? 'Gagal P2P lewat NAT/Firewall. Coba ganti jaringan atau buat room baru.'
+            : 'Gagal P2P (NAT/Firewall ketat, TURN belum aktif). Coba 1 Wi-Fi atau pasang TURN gratis di Vercel.';
+          this.fail('ICE_FAILED', msg);
         }
         return;
       }
@@ -296,24 +349,42 @@ export class WebRtcPeer {
     this.pingTimer = setInterval(sendPing, 1200);
   }
 
-  private async waitInitialIce(pc: RTCPeerConnection, maxWaitMs = 850): Promise<void> {
+  private async waitInitialIce(
+    pc: RTCPeerConnection,
+    maxWaitMs = 1500,
+    minEarlyResolveMs = 380
+  ): Promise<void> {
     if (pc.iceGatheringState === 'complete') return;
     await new Promise<void>((resolve) => {
       let settled = false;
+      let minWindowPassed = false;
+      const hasUsefulNatCandidate = () =>
+        this.localCandTypes.has('relay') || this.localCandTypes.has('srflx');
       const done = () => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        clearTimeout(maxTimer);
+        clearTimeout(minTimer);
         pc.removeEventListener('icegatheringstatechange', onState);
         pc.removeEventListener('icecandidate', onCand);
         resolve();
       };
-      const timer = setTimeout(done, maxWaitMs);
+      const maxTimer = setTimeout(done, maxWaitMs);
+      const minTimer = setTimeout(() => {
+        minWindowPassed = true;
+        if (hasUsefulNatCandidate()) done();
+      }, minEarlyResolveMs);
       const onState = () => {
         if (pc.iceGatheringState === 'complete') done();
       };
       const onCand = (ev: RTCPeerConnectionIceEvent) => {
-        if (!ev.candidate) done();
+        if (!ev.candidate) {
+          done();
+          return;
+        }
+        if (minWindowPassed && hasUsefulNatCandidate()) {
+          done();
+        }
       };
       pc.addEventListener('icegatheringstatechange', onState);
       pc.addEventListener('icecandidate', onCand);
@@ -325,6 +396,7 @@ export class WebRtcPeer {
       const k = candidateKey(c);
       if (this.addedRemoteCandidateKeys.has(k)) continue;
       this.addedRemoteCandidateKeys.add(k);
+      this.remoteCandTypes.add(parseCandidateType(c.candidate));
       if (!this.remoteDescriptionReady || !this.pc) {
         this.queuedRemoteCandidates.push(c);
       } else {
@@ -405,7 +477,11 @@ export class WebRtcPeer {
     this.setPhase('creating', 'Menyiapkan room online...');
 
     try {
-      const pc = this.createPeerConnection();
+      const iceConfig = await fetchIceConfig(this.abortCtrl.signal);
+      if (this.closed) return;
+      this.iceHasTurn = iceConfig.hasTurn;
+
+      const pc = this.createPeerConnection(iceConfig.iceServers);
       this.pc = pc;
 
       const reliable = pc.createDataChannel('reliable', { ordered: true });
@@ -490,8 +566,12 @@ export class WebRtcPeer {
     this.setPhase('joining', `Mencari room ${code}...`);
 
     try {
-      const room = await lookupSignalingRoom(code, this.abortCtrl.signal);
+      const [room, iceConfig] = await Promise.all([
+        lookupSignalingRoom(code, this.abortCtrl.signal),
+        fetchIceConfig(this.abortCtrl.signal),
+      ]);
       if (this.closed) return;
+      this.iceHasTurn = iceConfig.hasTurn;
       if (room.guestAnswer) {
         throw new SignalingError('ROOM_FULL', 'Room ini sudah penuh.');
       }
@@ -499,7 +579,7 @@ export class WebRtcPeer {
       this.activeConfig = room.config;
       this.callbacks.onConfigReady?.(room.config);
 
-      const pc = this.createPeerConnection();
+      const pc = this.createPeerConnection(iceConfig.iceServers);
       this.pc = pc;
       pc.ondatachannel = (ev) => {
         if (ev.channel.label === 'unreliable') {

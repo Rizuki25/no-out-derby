@@ -60,6 +60,23 @@ export interface IceCandidateDTO {
   usernameFragment?: string | null;
 }
 
+export interface IceServerEntry {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
+
+export interface IceServersResponse {
+  iceServers: IceServerEntry[];
+  hasTurn: boolean;
+  provider: 'stun-only' | 'metered' | 'cloudflare' | 'custom';
+}
+
+export const DEFAULT_STUN_SERVERS: readonly IceServerEntry[] = [
+  { urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] },
+  { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+];
+
 export interface RoomRecord {
   code: string;
   hostSecret: string;

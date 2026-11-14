@@ -8,7 +8,7 @@ import {
   sanitizeRoomCode,
   toOnlineGameMode,
 } from './SignalingTypes.ts';
-import { lookupSignalingRoom, SignalingError } from './WebRtcPeer.ts';
+import { fetchIceConfig, lookupSignalingRoom, SignalingError } from './WebRtcPeer.ts';
 import type { PeerConnectionPhase } from './WebRtcPeer.ts';
 
 export interface OnlineLobbyCallbacks {
@@ -41,7 +41,9 @@ export class OnlineLobbyUI {
   private joinBtn: HTMLButtonElement | null;
   private joinPreviewEl: HTMLElement | null;
   private cancelJoinBtn: HTMLButtonElement | null;
+  private natBadgeEl: HTMLElement | null;
   private statusEl: HTMLElement | null;
+  private iceStatusAbort: AbortController | null = null;
 
   private opened = false;
   private tab: 'host' | 'join' = 'host';
@@ -73,6 +75,7 @@ export class OnlineLobbyUI {
     this.joinBtn = document.getElementById('online-join-btn') as HTMLButtonElement | null;
     this.joinPreviewEl = document.getElementById('online-join-preview');
     this.cancelJoinBtn = document.getElementById('online-cancel-join-btn') as HTMLButtonElement | null;
+    this.natBadgeEl = document.getElementById('online-nat-badge');
     this.statusEl = document.getElementById('online-status');
 
     this.buildFormatButtons();
@@ -236,6 +239,7 @@ export class OnlineLobbyUI {
     this.selectedFormat = toOnlineGameMode(this.callbacks.getMenuConfig().mode);
 
     this.modalEl?.classList.add('open');
+    this.refreshNatStatus();
 
     if (initialJoinCode) {
       const clean = sanitizeRoomCode(initialJoinCode);
@@ -258,6 +262,7 @@ export class OnlineLobbyUI {
     this.opened = false;
     this.modalEl?.classList.remove('open');
     this.previewAbort?.abort();
+    this.iceStatusAbort?.abort();
     if (this.previewTimer) {
       clearTimeout(this.previewTimer);
       this.previewTimer = null;
@@ -393,6 +398,28 @@ export class OnlineLobbyUI {
     this.renderHostState();
     this.renderJoinState();
     this.setStatus(message, tone);
+  }
+
+  private refreshNatStatus(): void {
+    if (!this.natBadgeEl) return;
+    this.iceStatusAbort?.abort();
+    const ac = new AbortController();
+    this.iceStatusAbort = ac;
+
+    this.natBadgeEl.className = '';
+    this.natBadgeEl.textContent = 'NAT RELAY: MENGECEK...';
+    void fetchIceConfig(ac.signal).then((cfg) => {
+      if (ac.signal.aborted || !this.natBadgeEl) return;
+      if (cfg.hasTurn) {
+        this.natBadgeEl.className = 'turn-ready';
+        this.natBadgeEl.textContent =
+          `NAT RELAY: TURN AKTIF (${cfg.provider.toUpperCase()}) • SIAP BEDA JARINGAN / 4G`;
+      } else {
+        this.natBadgeEl.className = 'stun-only';
+        this.natBadgeEl.textContent =
+          'NAT RELAY: STUN ONLY • BEDA WI-FI/4G CGNAT PERLU ENV TURN DI VERCEL';
+      }
+    });
   }
 
   private setStatus(message: string, tone: 'info' | 'error' | 'ok'): void {

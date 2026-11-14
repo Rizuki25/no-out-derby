@@ -1,3 +1,4 @@
+import { resolveIceServers } from '../src/net/IceConfig.js';
 import { handleSignalingRequest } from '../src/net/SignalingHandler.js';
 import { createUpstashRoomStore } from '../src/net/UpstashRoomStore.js';
 
@@ -18,7 +19,7 @@ function getStore() {
 export default {
   async fetch(request: Request): Promise<Response> {
     try {
-      return await handleSignalingRequest(request, getStore());
+      return await handleSignalingRequest(request, getStore(), () => resolveIceServers(process.env));
     } catch (err) {
       console.error('[api/rooms] signaling handler error:', err);
       return new Response(
