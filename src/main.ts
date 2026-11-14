@@ -388,7 +388,7 @@ function initApp(): void {
     onLobbyStateChange: (phase, detail) => lobbyUI.onPhaseChange(phase, detail),
     onRoomCodeReady: (code) => lobbyUI.onRoomCodeReady(code),
     onLobbyError: (_code, message) => lobbyUI.onError(message),
-    onMatchConnected: (cfg, role) => {
+    onMatchConnected: (cfg, role, transport) => {
       lobbyUI.close(false);
       sound.unlock();
       sound.playMenuBlip(true);
@@ -400,9 +400,13 @@ function initApp(): void {
       if (role === 'host') {
         online.pushHostImmediateState(match, evs);
       }
+      const channelDesc =
+        transport === 'cloudflare-ws'
+          ? 'EDGE WSS AKTIF! SELAMAT BERTANDING'
+          : 'P2P AKTIF! SELAMAT BERTANDING';
       ui.triggerToastBanner(
         role === 'host' ? 'ONLINE TERHUBUNG (HOST P1)' : 'ONLINE TERHUBUNG (GUEST P2)',
-        'P2P AKTIF! SELAMAT BERTANDING',
+        channelDesc,
         '#7dffba',
         2.4
       );
@@ -934,7 +938,7 @@ function initApp(): void {
                 : input.getPlayerInputs(false).p1;
               const dtTactic = pendingGuestDirectTactic;
               pendingGuestDirectTactic = null;
-              online.sendGuestInput(localInput, dtTactic);
+              online.sendGuestInput(localInput, dtTactic, dt);
             }
             online.syncGuestRenderState(performance.now(), match);
             recordCompletedIfNeeded();

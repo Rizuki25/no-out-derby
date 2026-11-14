@@ -8,8 +8,8 @@ Game **2D Pixel Arcade Futsal** berkecepatan tinggi di arena oktagon tertutup �
 
 ## Fitur Utama
 
-- **16 Mode Permainan + Online P2P Multiplayer (`[O]`):**
-  - **Online Multiplayer P2P (WebRTC + Vercel Signaling):** Bermain jarak jauh lewat kode room 4 karakter atau link undangan `?room=XXXX` (`1v1/2v2/3v3/4v4 Versus` & `2v2/3v3/4v4 Co-op`). Menggunakan arsitektur *Host-Authoritative 60Hz* di atas **dual WebRTC DataChannel** (*unreliable* untuk snapshot/input latensi rendah + interpolasi Guest, serta *reliable* untuk ping & kontrol room) dengan pertukaran sinyal ringan di `/api/rooms`.
+- **16 Mode Permainan + Online Multiplayer (`[O]`):**
+  - **Online Multiplayer (Cloudflare Edge WebSocket + Fallback WebRTC P2P):** Bermain jarak jauh lewat kode room 4 karakter atau link undangan `?room=XXXX` (`1v1/2v2/3v3/4v4 Versus` & `2v2/3v3/4v4 Co-op`). Menggunakan arsitektur *Host-Authoritative 60Hz* lewat **Cloudflare Workers + Durable Objects WebSocket** (`wss://` port 443, anti-NAT/CGNAT, ping rendah Asia Tenggara) atau fallback WebRTC P2P (`unreliable` + `reliable`) via `/api/rooms`.
   - **Quick Match & Versus:** `1v1 vs AI`, `2v2 vs AI`, `3v3 (GK+2) vs AI`, `4v4 (GK+3) vs AI (Stadium XL)`, `2P 1v1 Versus`, `2P 2v2 Versus`, `2P 3v3 Versus`, `2P 4v4 Versus`, `2P 2v2 Co-op`, `2P 3v3 Co-op`, dan `2P 4v4 Co-op`.
   - **Derby Cup Tournament (`1v1`, `2v2`, `3v3`, `4v4`):** Turnamen 3 babak (*Quarter Final* → *Semi Final* → *Grand Final*) dengan sistem pemilihan **Perk** permanen antarrbabak (`Turbo Boots`, `Iron Leg`, `Quick Dash`, `Banana Curve`, `Steel Body`, `Magnet Touch`).
   - **Practice / Chaos Sandbox:** Mode latihan bebas tanpa batas waktu dengan tombol pemicu mutator instan (`1`–`6`, `0`), umpan silang *One-Timer* instan (`F`), reset bola (`B`), dan toggle bek AI sparring (`T`).
@@ -90,18 +90,25 @@ npm run dev
 
 ---
 
-## Deploy ke Vercel
+## Deploy ke Vercel & Cloudflare Edge Relay (Gratis)
 
-Repositori sudah dilengkapi [`vercel.json`](./vercel.json) (preset Vite -> build `npm run build`, output `dist/`) serta Vercel Serverless Function [`api/rooms.ts`](./api/rooms.ts) untuk *signaling* WebRTC (`GET/POST /api/rooms`):
+Repositori sudah dilengkapi [`vercel.json`](./vercel.json) (preset Vite -> build `npm run build`, output `dist/`), Vercel Serverless Function [`api/rooms.ts`](./api/rooms.ts), serta folder [`relay-worker/`](./relay-worker/wrangler.jsonc) (**Cloudflare Workers + SQLite Durable Objects WebSocket Relay**) untuk koneksi online yang mulus tanpa kartu kredit dan bebas masalah NAT/Firewall:
 
-1. Push repo ke GitHub.
-2. Buka [Vercel](https://vercel.com), klik **Add New Project**, lalu import repo `no-out-derby` (Build Command `npm run build`, Output Directory `dist`).
-3. **Untuk mengaktifkan Online P2P Multiplayer (`ONLINE P2P [O]`):** Buka tab **Storage / Integrations** di proyek Vercel, pasang **Upstash Redis** agar variabel lingkungan `UPSTASH_REDIS_REST_URL` dan `UPSTASH_REDIS_REST_TOKEN` (atau `KV_REST_API_URL` & `KV_REST_API_TOKEN`) terisi otomatis lalu redeploy. *(Jika Redis belum terpasang, `/api/rooms` mengembalikan HTTP `503 REDIS_NOT_CONFIGURED`; selama `npm run dev` lokal, middleware Vite otomatis menyediakan room store sementara.)*
-4. **Opsional — Server TURN Relay (untuk main beda jaringan / HP 4G CGNAT <-> Wi-Fi):** Tanpa TURN, koneksi WebRTC antar NAT ketat/CGNAT seluler dapat terblokir (`ICE_FAILED`). Anda dapat memasang salah satu grup Environment Variables gratis berikut di Vercel Project -> Settings -> Environment Variables (dibaca otomatis oleh `GET /api/rooms?ice=1`):
-   - **Metered.ca:** `METERED_TURN_DOMAIN` + `METERED_TURN_API_KEY`
-   - **Cloudflare Realtime TURN:** `CLOUDFLARE_TURN_TOKEN_ID` + `CLOUDFLARE_TURN_API_TOKEN`
-   - **Static TURN (mis. ExpressTURN / CoTURN):** `TURN_URLS` (dipisah koma) + `TURN_USERNAME` + `TURN_CREDENTIAL`
-5. Buka URL `.vercel.app` dari PC atau HP (mode **Mobile Pad** aktif otomatis lewat `VIEW: AUTO`), atau uji link undangan langsung dengan `?room=XXXX`.
+1. Push repo ke GitHub, lalu deploy frontend ke [Vercel](https://vercel.com) (Build Command `npm run build`, Output Directory `dist`).
+2. **Deploy Cloudflare Edge WebSocket Relay (Disarankan — 100% Gratis Tanpa Kartu Kredit, Edge Singapura, `wss://` port 443):**
+   ```bash
+   cd relay-worker
+   npm install
+   npx wrangler login
+   npx wrangler deploy
+   ```
+   Salin URL worker yang muncul (mis. `https://no-out-derby-relay.<akun>.workers.dev`), buka **Vercel Project -> Settings -> Environment Variables**, tambah variabel:
+   - `RELAY_WS_URL` = `https://no-out-derby-relay.<akun>.workers.dev`
+   Lalu klik **Redeploy** di Vercel (atau cukup tunggu variabel terbaca oleh `/api/rooms?ice=1`). Saat di modal Online badge berubah hijau ke `JALUR: CLOUDFLARE EDGE WSS`, game tidak lagi memakai TURN port 3478.
+3. **Fallback WebRTC + Upstash Redis (Jika belum memasang Cloudflare Relay):**
+   - Pasang **Upstash Redis** di tab Storage Vercel agar `KV_REST_API_URL` & `KV_REST_API_TOKEN` terisi otomatis.
+   - Opsional tambahkan TURN (`METERED_TURN_DOMAIN` + `METERED_TURN_API_KEY`, `CLOUDFLARE_TURN_TOKEN_ID` + `CLOUDFLARE_TURN_API_TOKEN`, atau `TURN_URLS` + `TURN_USERNAME` + `TURN_CREDENTIAL`).
+4. Buka URL `.vercel.app` dari PC atau HP (mode **Mobile Pad** aktif otomatis lewat `VIEW: AUTO`), atau uji link undangan langsung dengan `?room=XXXX`.
 
 ---
 
@@ -114,6 +121,9 @@ no-out-derby/
 ├── index.html                  # Canvas container, Online Modal, Mobile Deck UI & Fullscreen Bar
 ├── public/
 │   └── manifest.webmanifest    # Konfigurasi PWA fullscreen untuk browser mobile
+├── relay-worker/
+│   ├── wrangler.jsonc          # Konfigurasi Cloudflare Worker + SQLite Durable Object
+│   └── src/                    # Relay WebSocket Hibernation (RelayRoom + core engine)
 ├── game.prd                    # Panduan pemain lengkap, aturan, mode & PRD teknis
 ├── package.json
 ├── tsconfig.json
@@ -140,14 +150,16 @@ no-out-derby/
     │   ├── MobileLayout.ts     # Deteksi mode mobile, ukuran canvas Portrait/Landscape & HUD state
     │   └── MutatorManager.ts   # Penjadwalan & efek 6 Chaos Mutators
     ├── net/
-    │   ├── IceConfig.ts        # Resolver TURN/STUN dinamis dari env Vercel (/api/rooms?ice=1)
+    │   ├── IceConfig.ts        # Resolver Cloudflare Relay URL & TURN/STUN dinamis (/api/rooms?ice=1)
     │   ├── NetSnapshot.ts      # Edge-counter input decoder, snapshot builder & Guest interpolator
+    │   ├── NetTransport.ts     # Abstraksi transport bersama (WebSocket / WebRTC) & room preview
     │   ├── OnlineLobbyUI.ts    # Modal UI Host/Join Online Room & tautan undangan ?room=XXXX
-    │   ├── OnlineSession.ts    # Koordinator WebRTC Host-Authoritative 60Hz & sinkronisasi Guest
+    │   ├── OnlineSession.ts    # Koordinator Online Host-Authoritative 60Hz & throttling bandwidth
     │   ├── SignalingHandler.ts # Router/validator signaling GET/POST room & TTL 180s
     │   ├── SignalingTypes.ts   # Tipe room, mode online, kode 4-karakter & DTO signaling
     │   ├── UpstashRoomStore.ts # Adapter atomik Upstash Redis untuk penyimpanan room sementara
-    │   └── WebRtcPeer.ts       # Wrapper RTCPeerConnection, trickle ICE, dual DataChannel & RTT
+    │   ├── WebRtcPeer.ts       # Fallback WebRTC peer (trickle ICE, dual DataChannel & RTT)
+    │   └── WebSocketPeer.ts    # Transport WebSocket rendah-latensi via Cloudflare Edge Relay
     ├── render/
     │   ├── Palette.ts          # Palet warna piksel retro
     │   ├── ParticleSystem.ts   # Partikel debu, jejak tendangan, save/steal sparks & konfeti
@@ -170,6 +182,7 @@ no-out-derby/
         ├── physics.test.ts
         ├── pitch_size.test.ts
         ├── progression_and_sandbox.test.ts
+        ├── relay_worker.test.ts
         └── signaling.test.ts
 ```
 

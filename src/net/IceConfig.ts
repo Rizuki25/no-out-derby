@@ -112,21 +112,62 @@ function parseCustomTurn(env: Record<string, string | undefined>): IceServerEntr
   return hasTurnUrl([entry]) ? [entry] : null;
 }
 
+export interface NormalizedRelayUrls {
+  relayWsUrl: string;
+  relayHttpUrl: string;
+}
+
 /**
- * Resolves ICE/TURN servers for WebRTC clients from server-only environment variables
- * (Metered, Cloudflare Realtime TURN, or static custom TURN), falling back cleanly to STUN.
+ * Normalizes a configured Cloudflare Relay Worker URL (https/wss/host) into both
+ * WebSocket (`wss://...`) and HTTP lookup (`https://...`) base origins.
+ */
+export function normalizeRelayUrls(raw: string | undefined): NormalizedRelayUrls | null {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return null;
+
+  let candidate = trimmed;
+  if (!/^[a-z]+:\/\//i.test(candidate)) {
+    const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(candidate);
+    candidate = `${isLocal ? 'http' : 'https'}://${candidate}`;
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    const proto = parsed.protocol.toLowerCase();
+    if (proto !== 'http:' && proto !== 'https:' && proto !== 'ws:' && proto !== 'wss:') {
+      return null;
+    }
+    const secure = proto === 'https:' || proto === 'wss:';
+    const host = parsed.host;
+    if (!host) return null;
+    return {
+      relayWsUrl: `${secure ? 'wss' : 'ws'}://${host}`,
+      relayHttpUrl: `${secure ? 'https' : 'http'}://${host}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolves online relay & ICE/TURN config from server-only environment variables
+ * (`RELAY_WS_URL` Cloudflare WebSocket relay, plus optional TURN fallbacks).
  */
 export async function resolveIceServers(
   env: Record<string, string | undefined>,
   fetchFn: typeof fetch = fetch
 ): Promise<IceServersResponse> {
+  const rawRelayUrl =
+    env.RELAY_WS_URL || env.CLOUDFLARE_RELAY_URL || env.VITE_RELAY_URL || '';
+  const relayUrls = normalizeRelayUrls(rawRelayUrl);
+
   const meteredDomain = env.METERED_TURN_DOMAIN || '';
   const meteredKey = env.METERED_TURN_API_KEY || '';
   const cfTokenId = env.CLOUDFLARE_TURN_TOKEN_ID || '';
   const cfApiToken = env.CLOUDFLARE_TURN_API_TOKEN || '';
   const customKey = `${env.TURN_URLS || env.TURN_URL || ''}|${env.TURN_USERNAME || ''}`;
 
-  const cacheKey = `${meteredDomain}|${meteredKey}|${cfTokenId}|${cfApiToken}|${customKey}`;
+  const cacheKey = `${relayUrls?.relayWsUrl || ''}|${meteredDomain}|${meteredKey}|${cfTokenId}|${cfApiToken}|${customKey}`;
   if (cachedIce && cachedIce.key === cacheKey && Date.now() < cachedIce.expiresAt) {
     return cachedIce.value;
   }
@@ -170,7 +211,15 @@ export async function resolveIceServers(
     };
   }
 
-  if (resolved.hasTurn) {
+  if (relayUrls) {
+    resolved = {
+      ...resolved,
+      relayWsUrl: relayUrls.relayWsUrl,
+      relayHttpUrl: relayUrls.relayHttpUrl,
+    };
+  }
+
+  if (resolved.hasTurn || resolved.relayWsUrl) {
     cachedIce = {
       key: cacheKey,
       expiresAt: Date.now() + ICE_CACHE_TTL_MS,

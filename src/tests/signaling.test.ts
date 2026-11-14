@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import roomsEndpoint from '../../api/rooms.js';
-import { clearIceCache, resolveIceServers } from '../net/IceConfig.js';
+import { clearIceCache, normalizeRelayUrls, resolveIceServers } from '../net/IceConfig.js';
 import {
   handleSignalingRequest,
   type RoomStore,
@@ -332,5 +332,21 @@ describe('Online Room Signaling & Validation', () => {
     );
     expect(degraded.provider).toBe('stun-only');
     expect(degraded.hasTurn).toBe(false);
+
+    // Cloudflare Edge WebSocket Relay URL resolution & normalization
+    clearIceCache();
+    expect(normalizeRelayUrls('https://no-out-derby-relay.demo.workers.dev/')).toEqual({
+      relayWsUrl: 'wss://no-out-derby-relay.demo.workers.dev',
+      relayHttpUrl: 'https://no-out-derby-relay.demo.workers.dev',
+    });
+    expect(normalizeRelayUrls('localhost:8787')).toEqual({
+      relayWsUrl: 'ws://localhost:8787',
+      relayHttpUrl: 'http://localhost:8787',
+    });
+    const wsResolved = await resolveIceServers({
+      RELAY_WS_URL: 'https://no-out-derby-relay.demo.workers.dev/',
+    });
+    expect(wsResolved.relayWsUrl).toBe('wss://no-out-derby-relay.demo.workers.dev');
+    expect(wsResolved.relayHttpUrl).toBe('https://no-out-derby-relay.demo.workers.dev');
   });
 });

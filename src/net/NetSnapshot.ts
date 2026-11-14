@@ -436,6 +436,11 @@ export class NetInterpolator {
   private buffer: NetStateSnapshot[] = [];
   private highestSeq = -1;
   private hostClockOffsetMs: number | null = null;
+  private readonly interpDelayMs: number;
+
+  constructor(interpDelayMs = INTERP_DELAY_MS) {
+    this.interpDelayMs = interpDelayMs;
+  }
 
   reset(): void {
     this.buffer = [];
@@ -474,7 +479,7 @@ export class NetInterpolator {
       return latest;
     }
 
-    const renderSimTime = localNowMs - this.hostClockOffsetMs - INTERP_DELAY_MS;
+    const renderSimTime = localNowMs - this.hostClockOffsetMs - this.interpDelayMs;
 
     // Extrapolate slightly ahead of latest snapshot if packet hasn't arrived yet
     if (renderSimTime >= latest.simTime) {

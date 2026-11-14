@@ -70,6 +70,8 @@ export interface IceServersResponse {
   iceServers: IceServerEntry[];
   hasTurn: boolean;
   provider: 'stun-only' | 'metered' | 'cloudflare' | 'custom';
+  relayWsUrl?: string;
+  relayHttpUrl?: string;
 }
 
 export const DEFAULT_STUN_SERVERS: readonly IceServerEntry[] = [

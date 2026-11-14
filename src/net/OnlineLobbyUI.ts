@@ -4,12 +4,16 @@ import {
   ONLINE_MODE_OPTIONS,
   type OnlineGameMode,
   type OnlineRoomConfig,
-  type PublicRoomState,
   sanitizeRoomCode,
   toOnlineGameMode,
 } from './SignalingTypes.ts';
-import { fetchIceConfig, lookupSignalingRoom, SignalingError } from './WebRtcPeer.ts';
-import type { PeerConnectionPhase } from './WebRtcPeer.ts';
+import {
+  fetchConnectionConfig,
+  lookupOnlineRoom,
+  type OnlineRoomPreview,
+  type PeerConnectionPhase,
+  SignalingError,
+} from './NetTransport.ts';
 
 export interface OnlineLobbyCallbacks {
   getMenuConfig: () => MatchConfig;
@@ -342,13 +346,12 @@ export class OnlineLobbyUI {
     this.previewTimer = setTimeout(() => {
       const ac = new AbortController();
       this.previewAbort = ac;
-      void lookupSignalingRoom(code, ac.signal)
-        .then((room: PublicRoomState) => {
+      void lookupOnlineRoom(code, ac.signal)
+        .then((room: OnlineRoomPreview) => {
           if (ac.signal.aborted || !this.joinPreviewEl) return;
           const opt = ONLINE_MODE_OPTIONS.find((m) => m.value === room.config.mode);
-          const taken = Boolean(room.guestAnswer);
           this.joinPreviewEl.style.display = 'block';
-          this.joinPreviewEl.textContent = taken
+          this.joinPreviewEl.textContent = room.full
             ? `ROOM ${room.code}: SUDAH PENUH`
             : `ROOM ${room.code}: ${opt?.shortLabel ?? room.config.mode} • ${room.config.arena.toUpperCase()} • ${room.config.durationSeconds}S • SIAP GABUNG`;
         })
@@ -379,7 +382,7 @@ export class OnlineLobbyUI {
   onPhaseChange(phase: PeerConnectionPhase, detail?: string): void {
     if (!this.opened) return;
     if (phase === 'connected') {
-      this.setStatus('Terhubung P2P! Memulai pertandingan...', 'ok');
+      this.setStatus('Terhubung! Memulai pertandingan...', 'ok');
       this.close(false);
       return;
     }
@@ -407,17 +410,21 @@ export class OnlineLobbyUI {
     this.iceStatusAbort = ac;
 
     this.natBadgeEl.className = '';
-    this.natBadgeEl.textContent = 'NAT RELAY: MENGECEK...';
-    void fetchIceConfig(ac.signal).then((cfg) => {
+    this.natBadgeEl.textContent = 'JALUR KONEKSI: MENGECEK...';
+    void fetchConnectionConfig(ac.signal).then((cfg) => {
       if (ac.signal.aborted || !this.natBadgeEl) return;
-      if (cfg.hasTurn) {
+      if (cfg.relayWsUrl) {
+        this.natBadgeEl.className = 'turn-ready';
+        this.natBadgeEl.textContent =
+          'JALUR: CLOUDFLARE EDGE WSS • ANTI-NAT / ANTI-BLOKIR (LOW PING)';
+      } else if (cfg.hasTurn) {
         this.natBadgeEl.className = 'turn-ready';
         this.natBadgeEl.textContent =
           `NAT RELAY: TURN AKTIF (${cfg.provider.toUpperCase()}) • SIAP BEDA JARINGAN / 4G`;
       } else {
         this.natBadgeEl.className = 'stun-only';
         this.natBadgeEl.textContent =
-          'NAT RELAY: STUN ONLY • BEDA WI-FI/4G CGNAT PERLU ENV TURN DI VERCEL';
+          'NAT RELAY: STUN ONLY • PASANG RELAY_WS_URL (CLOUDFLARE) DI VERCEL AGAR LANCAR';
       }
     });
   }

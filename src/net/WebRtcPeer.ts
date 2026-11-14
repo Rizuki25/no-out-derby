@@ -1,41 +1,31 @@
-import {
-  type NetInputPacket,
-  type NetPingMessage,
-  type NetReliableMessage,
-  type NetStateSnapshot,
+import type {
+  NetInputPacket,
+  NetPingMessage,
+  NetReliableMessage,
+  NetStateSnapshot,
 } from './NetSnapshot.ts';
 import {
-  DEFAULT_STUN_SERVERS,
+  fetchConnectionConfig,
+  type NetPeerTransport,
+  type PeerCallbacks,
+  type PeerConnectionPhase,
+  SignalingError,
+  signalingFetch,
+  type TransportKind,
+} from './NetTransport.ts';
+import {
   type IceCandidateDTO,
   type IceServerEntry,
-  type IceServersResponse,
   type OnlineRoomConfig,
   type PublicRoomState,
   sanitizeRoomCode,
   type SessionDescriptionDTO,
 } from './SignalingTypes.ts';
 
-export type PeerConnectionPhase =
-  | 'idle'
-  | 'creating'
-  | 'waiting_guest'
-  | 'joining'
-  | 'connecting'
-  | 'connected'
-  | 'disconnected'
-  | 'error';
+export type { PeerCallbacks, PeerConnectionPhase, TransportKind } from './NetTransport.ts';
+export { fetchConnectionConfig as fetchIceConfig, SignalingError } from './NetTransport.ts';
 
-export interface PeerCallbacks {
-  onPhaseChange?: (phase: PeerConnectionPhase, detail?: string) => void;
-  onRoomCodeReady?: (code: string) => void;
-  onConfigReady?: (config: OnlineRoomConfig) => void;
-  onConnected?: (config: OnlineRoomConfig) => void;
-  onUnreliableMessage?: (msg: NetInputPacket | NetStateSnapshot | NetPingMessage) => void;
-  onReliableMessage?: (msg: NetReliableMessage) => void;
-  onPingUpdate?: (pingMs: number) => void;
-  onDisconnected?: (reason: string) => void;
-  onError?: (code: string, message: string) => void;
-}
+const UNRELIABLE_BACKPRESSURE_BYTES = 65_536;
 
 function parseCandidateType(cand: string): string {
   const match = /\btyp\s+(host|srflx|prflx|relay)\b/i.exec(cand);
@@ -55,61 +45,6 @@ function candidateKey(c: IceCandidateDTO): string {
   return `${c.candidate}|${c.sdpMid ?? ''}|${c.sdpMLineIndex ?? ''}`;
 }
 
-export class SignalingError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string
-  ) {
-    super(message);
-  }
-}
-
-async function signalingFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) {
-    const errCode = typeof data.error === 'string' ? data.error : `HTTP_${res.status}`;
-    const errMsg =
-      typeof data.message === 'string'
-        ? data.message
-        : `Gagal menghubungi server signaling (${res.status})`;
-    throw new SignalingError(errCode, errMsg);
-  }
-  return data as T;
-}
-
-/** Fetches ICE (STUN + optional TURN) server list from `/api/rooms?ice=1` with STUN fallback. */
-export async function fetchIceConfig(signal?: AbortSignal): Promise<IceServersResponse> {
-  const fallback: IceServersResponse = {
-    iceServers: [...DEFAULT_STUN_SERVERS],
-    hasTurn: false,
-    provider: 'stun-only',
-  };
-  if (signal?.aborted) return fallback;
-
-  const ac = new AbortController();
-  const timeoutId = setTimeout(() => ac.abort(), 1800);
-  const onParentAbort = () => ac.abort();
-  signal?.addEventListener('abort', onParentAbort, { once: true });
-
-  try {
-    const data = await signalingFetch<IceServersResponse>('/api/rooms?ice=1', {
-      method: 'GET',
-      cache: 'no-store',
-      signal: ac.signal,
-    });
-    if (Array.isArray(data.iceServers) && data.iceServers.length > 0) {
-      return data;
-    }
-    return fallback;
-  } catch {
-    return fallback;
-  } finally {
-    clearTimeout(timeoutId);
-    signal?.removeEventListener('abort', onParentAbort);
-  }
-}
-
 /** Fetches public room metadata (config & offer) to preview before or during join. */
 export async function lookupSignalingRoom(rawCode: string, signal?: AbortSignal): Promise<PublicRoomState> {
   const code = sanitizeRoomCode(rawCode);
@@ -121,10 +56,11 @@ export async function lookupSignalingRoom(rawCode: string, signal?: AbortSignal)
 }
 
 /**
- * Manages a single P2P WebRTC session (Host or Guest) including signaling room
+ * Manages a single P2P WebRTC fallback session (Host or Guest) including signaling room
  * handshake via `/api/rooms`, dual DataChannels (`unreliable` + `reliable`), and RTT ping.
  */
-export class WebRtcPeer {
+export class WebRtcPeer implements NetPeerTransport {
+  readonly transportKind: TransportKind = 'webrtc-p2p';
   private pc: RTCPeerConnection | null = null;
   private unreliableCh: RTCDataChannel | null = null;
   private reliableCh: RTCDataChannel | null = null;
@@ -334,7 +270,7 @@ export class WebRtcPeer {
         void this.deleteRoomSilently();
       }
       if (this.activeConfig) {
-        this.callbacks.onConnected?.(this.activeConfig);
+        this.callbacks.onConnected?.(this.activeConfig, this.transportKind);
       }
     }
   }
@@ -346,7 +282,7 @@ export class WebRtcPeer {
       this.sendUnreliable({ t: 'ping', ts: performance.now() });
     };
     sendPing();
-    this.pingTimer = setInterval(sendPing, 1200);
+    this.pingTimer = setInterval(sendPing, 2000);
   }
 
   private async waitInitialIce(
@@ -477,7 +413,7 @@ export class WebRtcPeer {
     this.setPhase('creating', 'Menyiapkan room online...');
 
     try {
-      const iceConfig = await fetchIceConfig(this.abortCtrl.signal);
+      const iceConfig = await fetchConnectionConfig(this.abortCtrl.signal);
       if (this.closed) return;
       this.iceHasTurn = iceConfig.hasTurn;
 
@@ -568,7 +504,7 @@ export class WebRtcPeer {
     try {
       const [room, iceConfig] = await Promise.all([
         lookupSignalingRoom(code, this.abortCtrl.signal),
-        fetchIceConfig(this.abortCtrl.signal),
+        fetchConnectionConfig(this.abortCtrl.signal),
       ]);
       if (this.closed) return;
       this.iceHasTurn = iceConfig.hasTurn;
@@ -646,7 +582,10 @@ export class WebRtcPeer {
 
   sendUnreliable(msg: NetInputPacket | NetStateSnapshot | NetPingMessage): void {
     if (this.closed) return;
-    if (this.unreliableCh?.readyState === 'open') {
+    if (
+      this.unreliableCh?.readyState === 'open' &&
+      (this.unreliableCh.bufferedAmount ?? 0) <= UNRELIABLE_BACKPRESSURE_BYTES
+    ) {
       try {
         this.unreliableCh.send(JSON.stringify(msg));
         return;

@@ -882,7 +882,7 @@ export class UIRenderer {
         ctx.strokeStyle = PALETTE.iceCyan;
         ctx.lineWidth = 1;
         ctx.strokeRect(onlineX + 0.5, ry + 0.5, onlineW - 1, 14);
-        drawPixelText(ctx, 'ONLINE P2P [O]', onlineX + onlineW * 0.5, ry + 4, PALETTE.pureWhite, 1, 'center');
+        drawPixelText(ctx, 'ONLINE [O]', onlineX + onlineW * 0.5, ry + 4, PALETTE.pureWhite, 1, 'center');
         this.clickZones.push({
           x: onlineX,
           y: ry,
@@ -1025,7 +1025,7 @@ export class UIRenderer {
       {
         id: 1,
         label: isOnline
-          ? `LIVE P2P · ROOM ${onlineStatus?.roomCode ?? '----'}`
+          ? `${onlineStatus?.transport === 'cloudflare-ws' ? 'LIVE WSS' : 'LIVE P2P'} · ROOM ${onlineStatus?.roomCode ?? '----'}`
           : 'RESTART MATCH',
         action: isOnline ? callbacks.onResume : callbacks.onRestartRound,
       },
