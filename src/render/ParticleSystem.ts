@@ -12,6 +12,10 @@ interface PixelParticle {
   life: number;
   maxLife: number;
   gravity: number;
+  shape?: 'square' | 'ribbon';
+  angle?: number;
+  spin?: number;
+  drag?: number;
 }
 
 interface Shockwave {
@@ -108,33 +112,91 @@ export class ParticleSystem {
 
   emitGoalConfetti(x: number, y: number, scoringTeam: Team): void {
     const kit = getTeamKit(scoringTeam === 'A' ? this.teamAKit : this.teamBKit, scoringTeam);
-    const teamColor = kit.primary;
-    const teamLight = kit.light;
-    const colors = [teamColor, teamLight, kit.trim, PALETTE.gold];
-    for (let i = 0; i < 42; i++) {
+    const colors = [kit.primary, kit.light, kit.trim, PALETTE.gold, PALETTE.pureWhite, PALETTE.iceCyan];
+    // Swirling festive confetti ribbons
+    for (let i = 0; i < 62; i++) {
       const ang = Math.random() * Math.PI * 2;
-      const spd = 35 + Math.random() * 150;
+      const spd = 45 + Math.random() * 195;
       this.pushParticle({
         x,
         y,
         vx: Math.cos(ang) * spd,
-        vy: Math.sin(ang) * spd - 40,
-        size: Math.random() < 0.7 ? 2 : 3,
+        vy: Math.sin(ang) * spd - 65,
+        size: Math.random() < 0.55 ? 3.5 : 2.5,
         color: colors[i % colors.length],
-        life: 0.65 + Math.random() * 0.55,
-        maxLife: 1.2,
-        gravity: 120,
+        life: 0.95 + Math.random() * 0.75,
+        maxLife: 1.7,
+        gravity: 78,
+        shape: 'ribbon',
+        angle: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 14,
+        drag: 0.94,
+      });
+    }
+    // Bright impact firework sparks
+    for (let i = 0; i < 26; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spd = 85 + Math.random() * 165;
+      this.pushParticle({
+        x,
+        y,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd - 20,
+        size: i % 2 === 0 ? 2.5 : 1.5,
+        color: i % 3 === 0 ? PALETTE.pureWhite : PALETTE.gold,
+        life: 0.35 + Math.random() * 0.3,
+        maxLife: 0.65,
+        gravity: 95,
       });
     }
     this.pushShockwave({
       x,
       y,
       radius: 4,
-      maxRadius: 46,
-      color: teamLight,
-      life: 0.35,
-      maxLife: 0.35,
+      maxRadius: 56,
+      color: kit.light,
+      life: 0.38,
+      maxLife: 0.38,
     });
+    this.pushShockwave({
+      x,
+      y,
+      radius: 8,
+      maxRadius: 82,
+      color: PALETTE.gold,
+      life: 0.48,
+      maxLife: 0.48,
+    });
+  }
+
+  emitGoalCannons(leftX: number, rightX: number, topY: number, scoringTeam: Team): void {
+    const kit = getTeamKit(scoringTeam === 'A' ? this.teamAKit : this.teamBKit, scoringTeam);
+    const colors = [kit.light, PALETTE.gold, PALETTE.pureWhite, kit.primary, PALETTE.iceCyan];
+    const cannons = [
+      { x: leftX + 26, y: topY + 6, baseAng: 0.72 },
+      { x: rightX - 26, y: topY + 6, baseAng: Math.PI - 0.72 },
+    ];
+    for (const c of cannons) {
+      for (let i = 0; i < 22; i++) {
+        const ang = c.baseAng + (Math.random() - 0.5) * 0.75;
+        const spd = 95 + Math.random() * 135;
+        this.pushParticle({
+          x: c.x,
+          y: c.y,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd - 18,
+          size: Math.random() < 0.6 ? 3.5 : 2.5,
+          color: colors[i % colors.length],
+          life: 1.0 + Math.random() * 0.65,
+          maxLife: 1.65,
+          gravity: 68,
+          shape: 'ribbon',
+          angle: Math.random() * Math.PI * 2,
+          spin: (Math.random() - 0.5) * 16,
+          drag: 0.945,
+        });
+      }
+    }
   }
 
   emitExplosion(x: number, y: number): void {
@@ -243,12 +305,33 @@ export class ParticleSystem {
           });
           break;
         case 'wall_bounce':
-          if (ev.isPinball || ev.speed > 130) {
-            this.emitSparks(ev.x, ev.y, ev.isPinball ? PALETTE.pinballGlow : PALETTE.wallBorder, ev.isPinball ? 7 : 3);
+          if (ev.isPinball || ev.speed > 125) {
+            const wallColor = ev.isPinball ? PALETTE.pinballGlow : PALETTE.gold;
+            this.emitSparks(ev.x, ev.y, wallColor, ev.isPinball ? 9 : 5);
+            if (ev.isPinball || ev.speed > 185) {
+              this.pushShockwave({
+                x: ev.x,
+                y: ev.y,
+                radius: 2,
+                maxRadius: ev.isPinball ? 22 : 15,
+                color: ev.isPinball ? PALETTE.pinballGlow : PALETTE.iceCyan,
+                life: 0.2,
+                maxLife: 0.2,
+              });
+            }
           }
           break;
         case 'post_clang':
-          this.emitSparks(ev.x, ev.y, PALETTE.gold, 12);
+          this.emitSparks(ev.x, ev.y, PALETTE.gold, 14);
+          this.pushShockwave({
+            x: ev.x,
+            y: ev.y,
+            radius: 2,
+            maxRadius: 20,
+            color: PALETTE.gold,
+            life: 0.22,
+            maxLife: 0.22,
+          });
           break;
         case 'save':
           this.emitSaveBurst(ev.x, ev.y);
@@ -280,7 +363,11 @@ export class ParticleSystem {
       p.vy += p.gravity * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      p.vx *= 0.96;
+      p.vx *= p.drag ?? 0.96;
+      if (p.shape === 'ribbon' && p.angle !== undefined && p.spin !== undefined) {
+        p.angle += p.spin * dt;
+        p.vx += Math.sin(p.angle) * 28 * dt;
+      }
     }
 
     for (let i = this.shockwaves.length - 1; i >= 0; i--) {
@@ -312,7 +399,16 @@ export class ParticleSystem {
       const alpha = Math.min(1, (p.life / p.maxLife) * 1.4);
       ctx.globalAlpha = alpha;
       ctx.fillStyle = p.color;
-      ctx.fillRect(Math.round(p.x - p.size * 0.5), Math.round(p.y - p.size * 0.5), p.size, p.size);
+      if (p.shape === 'ribbon') {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.angle ?? 0);
+        const flutter = 0.45 + 0.55 * Math.abs(Math.cos((p.angle ?? 0) * 1.7));
+        ctx.fillRect(-p.size * 0.6, -p.size * 0.35 * flutter, p.size * 1.35, Math.max(1.2, p.size * 0.7 * flutter));
+        ctx.restore();
+      } else {
+        ctx.fillRect(Math.round(p.x - p.size * 0.5), Math.round(p.y - p.size * 0.5), p.size, p.size);
+      }
     }
     ctx.globalAlpha = 1;
   }

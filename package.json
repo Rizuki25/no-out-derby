@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:crazygames": "VITE_CRAZYGAMES=true tsc --noEmit && VITE_CRAZYGAMES=true vite build",
+    "pack:crazygames": "npm run build:crazygames && rm -f crazygames-build.zip && (cd dist && zip -r ../crazygames-build.zip .)",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"

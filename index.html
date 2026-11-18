@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="id">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -13,7 +13,8 @@
     <link rel="icon" href="./favicon.png" type="image/png" sizes="64x64" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <title>No-Out Derby — Futsal Pantul</title>
+    <title>No-Out Derby — Arcade Bounce Futsal</title>
+    <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js" async></script>
     <style>
       * {
         box-sizing: border-box;
@@ -78,10 +79,7 @@
 
       canvas#game-canvas {
         display: block;
-        image-rendering: -moz-crisp-edges;
-        image-rendering: -webkit-crisp-edges;
-        image-rendering: pixelated;
-        image-rendering: crisp-edges;
+        image-rendering: auto;
         box-shadow: 0 0 0 2px #263244, 0 18px 48px rgba(0, 0, 0, 0.75);
         background-color: #0f141e;
         cursor: pointer;
@@ -585,6 +583,7 @@
         bottom: 92px;
       }
 
+      /* CRAZYGAMES_STRIP_ONLINE_START */
       /* Online P2P Lobby Modal */
       #online-modal {
         display: none;
@@ -813,6 +812,7 @@
         color: #ffe08a;
         background: #211909;
       }
+      /* CRAZYGAMES_STRIP_ONLINE_END */
     </style>
   </head>
   <body>
@@ -837,7 +837,7 @@
       <div id="touch-sandbox-bar">
         <button type="button" class="sandbox-btn touch-zone" data-sb="feed">FEED</button>
         <button type="button" class="sandbox-btn touch-zone" data-sb="ball">BALL</button>
-        <button type="button" class="sandbox-btn touch-zone" data-sb="def">AI BEK</button>
+        <button type="button" class="sandbox-btn touch-zone" data-sb="def">AI DEF</button>
         <button type="button" class="sandbox-btn mut touch-zone" data-sb="m0">M1:GIANT</button>
         <button type="button" class="sandbox-btn mut touch-zone" data-sb="m1">M2:ICE</button>
         <button type="button" class="sandbox-btn mut touch-zone" data-sb="m2">M3:PIN</button>
@@ -885,6 +885,7 @@
       </div>
     </div>
 
+    <!-- CRAZYGAMES_STRIP_ONLINE_START -->
     <div id="online-modal" role="dialog" aria-modal="true" aria-labelledby="online-modal-title">
       <div class="online-card">
         <div class="online-head">
@@ -949,6 +950,7 @@
         <div id="online-status">Pilih Buat Room untuk mengundang teman, atau masukkan kode Room teman.</div>
       </div>
     </div>
+    <!-- CRAZYGAMES_STRIP_ONLINE_END -->
 
     <script type="module" src="/src/main.ts"></script>
   </body>

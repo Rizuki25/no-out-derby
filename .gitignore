@@ -3,6 +3,8 @@ node_modules/
 .wrangler/
 dist/
 dist-ssr/
+crazygames-build.zip
+crazygames-covers/
 coverage/
 .vite/
 
@@ -17,3 +19,6 @@ npm-debug.log*
 # Editor / OS
 .DS_Store
 Thumbs.db
+
+# Local throwaway profiling/audit scripts
+.scratch/

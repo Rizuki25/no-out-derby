@@ -9,220 +9,310 @@ export interface ActiveTeamKits {
   teamBKit?: TeamKitId;
 }
 
+const snapHalf = (v: number): number => Math.round(v * 2) / 2;
+
 /**
- * Draws a charming 3/4 top-down pixel character centered at foot position (x, y).
- * Supports 4 core animation states (idle, run, kick, dash/stun) with 2-4 frames each.
+ * Draws an expressive 16-bit style futsal athlete centered at foot position (x, y).
+ * Coordinates use 0.5 logical pixel steps so 2x (960x540) canvas output stays razor crisp.
  */
 export function drawPixelPlayer(
   ctx: CanvasRenderingContext2D,
   p: ReplayPlayerSnapshot,
   kits?: ActiveTeamKits
 ): void {
-  const px = Math.round(p.x);
-  const py = Math.round(p.y);
+  const px = snapHalf(p.x);
+  const py = snapHalf(p.y);
   const isKeeper = p.role === 'keeper';
   const facingRight = p.facingX >= 0;
+  const dir = facingRight ? 1 : -1;
 
   const kit = getTeamKit(p.team === 'A' ? kits?.teamAKit : kits?.teamBKit, p.team);
   const jersey = kit.primary;
   const jerseyDark = kit.dark;
+  const jerseyLight = kit.light;
   const trim = kit.trim;
   const shorts = kit.shorts;
 
-  // Ground elliptical drop shadow
-  ctx.fillStyle = 'rgba(11, 14, 20, 0.42)';
-  const shadowW = isKeeper ? 10 : 12;
-  ctx.fillRect(px - Math.floor(shadowW / 2), py - 2, shadowW, 4);
-  ctx.fillRect(px - Math.floor(shadowW / 2) + 1, py - 3, shadowW - 2, 6);
+  // Soft two-tier turf drop shadow
+  ctx.save();
+  ctx.fillStyle = 'rgba(8, 12, 18, 0.34)';
+  ctx.beginPath();
+  ctx.ellipse(px, py + 0.5, isKeeper ? 6.5 : 7, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(8, 12, 18, 0.25)';
+  ctx.beginPath();
+  ctx.ellipse(px, py + 0.5, isKeeper ? 4.5 : 5, 2, 0, 0, Math.PI * 2);
+  ctx.fill();
 
   // Fever aura ring under feet
   if (p.feverActive) {
     const pulse = Math.floor(p.animTime * 16) % 2 === 0;
     ctx.strokeStyle = pulse ? PALETTE.gold : PALETTE.amber;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1.25;
     ctx.beginPath();
-    ctx.ellipse(px, py, 9, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(px, py + 0.5, 9.5, 4.2, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
 
-  // Subtle active player ring under feet
+  // Active human control halo ring beneath feet
   if (p.humanSlot !== null) {
-    ctx.fillStyle = p.humanSlot === 1 ? PALETTE.gold : PALETTE.iceCyan;
-    ctx.fillRect(px - 6, py + 2, 12, 1);
-    ctx.fillRect(px - 7, py + 1, 2, 1);
-    ctx.fillRect(px + 5, py + 1, 2, 1);
+    const ringColor = p.humanSlot === 1 ? PALETTE.gold : PALETTE.iceCyan;
+    ctx.strokeStyle = PALETTE.inkBlack;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(px, py + 0.5, 8, 3.4, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = ringColor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(px, py + 0.5, 8, 3.4, 0, 0, Math.PI * 2);
+    ctx.stroke();
   }
 
-  // Quick Skill Feint phantom blur behind carrier
+  // Feint phantom afterimage silhouette
   if ((p.feintTimer ?? 0) > 0 && !isKeeper) {
-    const phantomX = Math.round(px - p.facingX * 4);
-    ctx.fillStyle = 'rgba(115, 239, 255, 0.36)';
-    ctx.fillRect(phantomX - 4, py - 14, 8, 12);
+    const phantomX = snapHalf(px - p.facingX * 5.5);
+    ctx.fillStyle = 'rgba(115, 239, 255, 0.34)';
+    ctx.beginPath();
+    ctx.ellipse(phantomX, py - 7, 4.5, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
   }
 
-  // Frame selection for 4 states
   let bobY = 0;
   let legOffsetL = 0;
   let legOffsetR = 0;
+  let armSwing = 0;
   let leanX = 0;
   let kickFootX = 0;
+  let isActiveKickSwing = false;
 
   const state: PlayerAnimState = p.animState;
   if (state === 'idle') {
-    const frame = Math.floor(p.animTime * 4) % 2;
-    bobY = frame === 1 ? -1 : 0;
+    const breath = Math.sin(p.animTime * 4.5);
+    bobY = breath > 0.35 ? -0.5 : 0;
   } else if (state === 'run') {
-    const frame = Math.floor(p.animTime * 11) % 4;
+    const frame = Math.floor(p.animTime * 12) % 4;
     bobY = frame % 2 === 1 ? -1 : 0;
     if (frame === 0) {
-      legOffsetL = -1;
-      legOffsetR = 1;
+      legOffsetL = -1.5;
+      legOffsetR = 1.5;
+      armSwing = 1.5;
     } else if (frame === 2) {
-      legOffsetL = 1;
-      legOffsetR = -1;
+      legOffsetL = 1.5;
+      legOffsetR = -1.5;
+      armSwing = -1.5;
     }
   } else if (state === 'kick') {
-    const frame = p.isCharging ? (Math.floor(p.animTime * 12) % 2) : 1;
-    leanX = facingRight ? (frame === 0 ? -1 : 2) : (frame === 0 ? 1 : -2);
-    kickFootX = facingRight ? (frame === 0 ? -2 : 4) : (frame === 0 ? 2 : -4);
-    bobY = frame === 1 ? -1 : 0;
+    const windup = p.isCharging && Math.floor(p.animTime * 12) % 2 === 0;
+    leanX = dir * (windup ? -1 : 1.5);
+    kickFootX = dir * (windup ? -2.5 : 4.5);
+    bobY = windup ? 0 : -1;
+    armSwing = windup ? -2 : 2;
+    isActiveKickSwing = !p.isCharging;
   } else if (state === 'dash') {
-    leanX = facingRight ? 2 : -2;
+    leanX = dir * 2;
     bobY = 1;
-    legOffsetL = facingRight ? -2 : 2;
-    legOffsetR = facingRight ? 2 : -2;
+    legOffsetL = -dir * 2.5;
+    legOffsetR = dir * 2.5;
+    armSwing = -2;
   } else if (state === 'stun') {
-    const frame = Math.floor(p.animTime * 14) % 2;
-    leanX = frame === 0 ? -1 : 1;
+    leanX = Math.floor(p.animTime * 14) % 2 === 0 ? -1 : 1;
   }
 
-  const cx = px + leanX;
-  const topY = py - (isKeeper ? 14 : 16) + bobY;
+  const cx = snapHalf(px + leanX);
+  const topY = snapHalf(py - (isKeeper ? 15.5 : 17.5) + bobY);
 
-  ctx.save();
+  // Kick motion smear arc behind follow-through leg
+  if (isActiveKickSwing && !isKeeper) {
+    ctx.strokeStyle = 'rgba(255, 210, 63, 0.72)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (facingRight) {
+      ctx.arc(cx + 1, py - 2.5, 6.5, -0.7, 0.45);
+    } else {
+      ctx.arc(cx - 1, py - 2.5, 6.5, Math.PI - 0.45, Math.PI + 0.7);
+    }
+    ctx.stroke();
+  }
+
+  // Outer crisp 0.5px dark silhouette outline
+  ctx.fillStyle = PALETTE.inkBlack;
+  ctx.fillRect(cx - 4.5, topY, 9, 7); // Head outline
+  ctx.fillRect(cx - 5.5, topY + 6.5, 11, 7.5); // Torso/arms outline
+
   if (isKeeper) {
-    // Slightly compact mini-keeper sprite
-    // Outline base
-    ctx.fillStyle = PALETTE.inkBlack;
-    ctx.fillRect(cx - 5, topY, 10, 14);
-    // Head + goalie cap
+    // Keeper Head + Visor Cap
     ctx.fillStyle = PALETTE.skinLight;
-    ctx.fillRect(cx - 3, topY + 2, 6, 4);
-    ctx.fillStyle = trim;
-    ctx.fillRect(cx - 4, topY + 1, 8, 2);
-    ctx.fillRect(facingRight ? cx + 1 : cx - 5, topY + 2, 4, 1);
-    // Eyes
-    ctx.fillStyle = PALETTE.inkBlack;
-    ctx.fillRect(facingRight ? cx + 1 : cx - 2, topY + 4, 1, 1);
-    // Jersey + Keeper Gloves
-    ctx.fillStyle = jersey;
-    ctx.fillRect(cx - 4, topY + 6, 8, 5);
-    ctx.fillStyle = PALETTE.pureWhite;
-    ctx.fillRect(cx - 5, topY + 7, 2, 3);
-    ctx.fillRect(cx + 3, topY + 7, 2, 3);
-    // Shorts & Boots
-    ctx.fillStyle = shorts;
-    ctx.fillRect(cx - 3, topY + 11, 6, 2);
-    ctx.fillStyle = PALETTE.pureWhite;
-    ctx.fillRect(cx - 3 + legOffsetL, py - 2, 2, 2);
-    ctx.fillRect(cx + 1 + legOffsetR, py - 2, 2, 2);
-  } else {
-    // Full outfield player 3/4 pixel sprite
-    // Crisp 1px black silhouette outline
-    ctx.fillStyle = PALETTE.inkBlack;
-    ctx.fillRect(cx - 5, topY, 10, 15);
-    ctx.fillRect(cx - 6, topY + 6, 12, 6);
+    ctx.fillRect(cx - 3.5, topY + 2.5, 7, 4);
+    ctx.fillStyle = PALETTE.skinDark;
+    ctx.fillRect(facingRight ? cx - 3.5 : cx + 1.5, topY + 3, 2, 3.5);
 
-    // Hair / Headband
+    ctx.fillStyle = trim;
+    ctx.fillRect(cx - 4, topY + 0.5, 8, 2.5);
+    ctx.fillStyle = PALETTE.pureWhite;
+    ctx.fillRect(cx - 3, topY + 0.5, 4, 1);
+    ctx.fillRect(facingRight ? cx + 1 : cx - 5.5, topY + 2, 4.5, 1); // Cap brim
+
+    // Expressive eyes
+    ctx.fillStyle = PALETTE.pureWhite;
+    ctx.fillRect(facingRight ? cx + 0.5 : cx - 2.5, topY + 4, 2, 1.5);
+    ctx.fillStyle = PALETTE.inkBlack;
+    ctx.fillRect(facingRight ? cx + 1.5 : cx - 2.5, topY + 4, 1, 1.5);
+
+    // Keeper Torso + Stripe
+    ctx.fillStyle = jersey;
+    ctx.fillRect(cx - 4, topY + 7, 8, 5);
+    ctx.fillStyle = jerseyDark;
+    ctx.fillRect(facingRight ? cx - 4 : cx + 2, topY + 7, 2, 5);
+    ctx.fillStyle = jerseyLight;
+    ctx.fillRect(cx - 1, topY + 7, 2, 4.5);
+
+    // Padded Keeper Gloves (left & right)
+    ctx.fillStyle = PALETTE.inkBlack;
+    ctx.fillRect(cx - 6.5, topY + 7, 2.5, 4);
+    ctx.fillRect(cx + 4, topY + 7, 2.5, 4);
+    ctx.fillStyle = PALETTE.pureWhite;
+    ctx.fillRect(cx - 6, topY + 7.5, 1.5, 3);
+    ctx.fillRect(cx + 4.5, topY + 7.5, 1.5, 3);
+    ctx.fillStyle = trim;
+    ctx.fillRect(cx - 6, topY + 7.5, 1.5, 1);
+    ctx.fillRect(cx + 4.5, topY + 7.5, 1.5, 1);
+
+    // Shorts + Legs + Cleats
+    ctx.fillStyle = shorts;
+    ctx.fillRect(cx - 3.5, topY + 12, 7, 2);
+    ctx.fillStyle = PALETTE.inkBlack;
+    ctx.fillRect(cx - 3.5 + legOffsetL, py - 2.5, 2.5, 2.5);
+    ctx.fillRect(cx + 1 + legOffsetR, py - 2.5, 2.5, 2.5);
+    ctx.fillStyle = PALETTE.pureWhite;
+    ctx.fillRect(cx - 3 + legOffsetL, py - 2, 2, 1.5);
+    ctx.fillRect(cx + 1 + legOffsetR, py - 2, 2, 1.5);
+  } else {
+    // Outfield Hair + Top Highlight + Headband
     ctx.fillStyle = kit.hair;
-    ctx.fillRect(cx - 4, topY + 1, 8, 2);
+    ctx.fillRect(cx - 4, topY + 0.5, 8, 2.5);
+    ctx.fillRect(facingRight ? cx - 4 : cx + 2.5, topY + 2, 1.5, 2);
     ctx.fillStyle = trim;
     ctx.fillRect(cx - 4, topY + 2, 8, 1);
 
-    // Face
+    // Face + Cheek Shading
     ctx.fillStyle = PALETTE.skinLight;
-    ctx.fillRect(cx - 4, topY + 3, 8, 3);
-    // Eyes facing direction
-    ctx.fillStyle = PALETTE.inkBlack;
-    if (facingRight) {
-      ctx.fillRect(cx, topY + 4, 1, 1);
-      ctx.fillRect(cx + 2, topY + 4, 1, 1);
-    } else {
-      ctx.fillRect(cx - 3, topY + 4, 1, 1);
-      ctx.fillRect(cx - 1, topY + 4, 1, 1);
-    }
-
-    // Jersey torso + vertical team stripe
-    ctx.fillStyle = jersey;
-    ctx.fillRect(cx - 4, topY + 6, 8, 5);
-    ctx.fillStyle = jerseyDark;
-    ctx.fillRect(facingRight ? cx - 4 : cx + 2, topY + 6, 2, 5);
-    ctx.fillStyle = trim;
-    ctx.fillRect(cx - 1, topY + 6, 2, 4);
-
-    // Arms
+    ctx.fillRect(cx - 3.5, topY + 3, 7, 3.5);
     ctx.fillStyle = PALETTE.skinDark;
-    ctx.fillRect(cx - 5, topY + 7, 1, 3);
-    ctx.fillRect(cx + 4, topY + 7, 1, 3);
+    ctx.fillRect(facingRight ? cx - 3.5 : cx + 2, topY + 3.5, 1.5, 3);
 
-    // Shorts
-    ctx.fillStyle = shorts;
-    ctx.fillRect(cx - 4, topY + 11, 8, 2);
-
-    // Animated legs & cleats
-    ctx.fillStyle = PALETTE.skinLight;
-    ctx.fillRect(cx - 3 + legOffsetL, py - 3, 2, 2);
-    ctx.fillRect(cx + 1 + legOffsetR + kickFootX, py - 3, 2, 2);
+    // Eyes with bright sclera highlight
+    const eyeX1 = facingRight ? cx - 0.5 : cx - 3;
+    const eyeX2 = facingRight ? cx + 1.5 : cx - 1;
     ctx.fillStyle = PALETTE.pureWhite;
-    ctx.fillRect(cx - 3 + legOffsetL, py - 1, 2, 2);
-    ctx.fillRect(cx + 1 + legOffsetR + kickFootX, py - 1, 2, 2);
+    ctx.fillRect(eyeX1, topY + 4, 1.5, 1.5);
+    ctx.fillRect(eyeX2, topY + 4, 1.5, 1.5);
+    ctx.fillStyle = PALETTE.inkBlack;
+    ctx.fillRect(facingRight ? eyeX1 + 0.5 : eyeX1, topY + 4, 1, 1.5);
+    ctx.fillRect(facingRight ? eyeX2 + 0.5 : eyeX2, topY + 4, 1, 1.5);
+
+    // Jersey Torso, Shoulder Accent, Collar & Vertical Stripe
+    ctx.fillStyle = jersey;
+    ctx.fillRect(cx - 4, topY + 7, 8, 5.5);
+    ctx.fillStyle = jerseyDark;
+    ctx.fillRect(facingRight ? cx - 4 : cx + 2, topY + 7, 2, 5.5);
+    ctx.fillStyle = jerseyLight;
+    ctx.fillRect(facingRight ? cx + 1 : cx - 3, topY + 7.5, 2, 1.5);
+    ctx.fillStyle = trim;
+    ctx.fillRect(cx - 1, topY + 7, 2, 5);
+    // White V-collar
+    ctx.fillStyle = PALETTE.pureWhite;
+    ctx.fillRect(cx - 1.5, topY + 7, 3, 1);
+
+    // Animated Arms & Sleeves
+    const armLy = snapHalf(topY + 7.5 + armSwing * 0.5);
+    const armRy = snapHalf(topY + 7.5 - armSwing * 0.5);
+    ctx.fillStyle = jerseyDark;
+    ctx.fillRect(cx - 5, armLy, 1.5, 2);
+    ctx.fillRect(cx + 3.5, armRy, 1.5, 2);
+    ctx.fillStyle = PALETTE.skinLight;
+    ctx.fillRect(cx - 5, armLy + 2, 1.5, 2);
+    ctx.fillRect(cx + 3.5, armRy + 2, 1.5, 2);
+
+    // Shorts with crisp side trim
+    ctx.fillStyle = shorts;
+    ctx.fillRect(cx - 4, topY + 12.5, 8, 2);
+    ctx.fillStyle = trim;
+    ctx.fillRect(cx - 4, topY + 12.5, 1, 2);
+    ctx.fillRect(cx + 3, topY + 12.5, 1, 2);
+
+    // Legs, Team Socks & Cleats
+    const lx = snapHalf(cx - 3 + legOffsetL);
+    const rx = snapHalf(cx + 1 + legOffsetR + kickFootX);
+    ctx.fillStyle = PALETTE.inkBlack;
+    ctx.fillRect(lx - 0.5, py - 3.5, 3, 3.5);
+    ctx.fillRect(rx - 0.5, py - 3.5, 3, 3.5);
+    ctx.fillStyle = PALETTE.skinLight;
+    ctx.fillRect(lx, py - 3, 2, 1);
+    ctx.fillRect(rx, py - 3, 2, 1);
+    ctx.fillStyle = jersey;
+    ctx.fillRect(lx, py - 2, 2, 1);
+    ctx.fillRect(rx, py - 2, 2, 1);
+    ctx.fillStyle = PALETTE.pureWhite;
+    ctx.fillRect(lx, py - 1, 2.5, 1);
+    ctx.fillRect(rx, py - 1, 2.5, 1);
   }
 
-  // Stun dizzy stars above head
+  // Dizzy stars above head when stunned
   if (p.stunTimer > 0) {
     const orbit = p.animTime * 9;
-    for (let i = 0; i < 2; i++) {
-      const sx = Math.round(cx + Math.cos(orbit + i * Math.PI) * 5);
-      const sy = Math.round(topY - 3 + Math.sin(orbit + i * Math.PI) * 1.5);
-      ctx.fillStyle = PALETTE.gold;
-      ctx.fillRect(sx - 1, sy - 1, 2, 2);
+    for (let i = 0; i < 3; i++) {
+      const sx = snapHalf(cx + Math.cos(orbit + (i * Math.PI * 2) / 3) * 5.5);
+      const sy = snapHalf(topY - 3 + Math.sin(orbit + (i * Math.PI * 2) / 3) * 1.5);
+      ctx.fillStyle = PALETTE.inkBlack;
+      ctx.fillRect(sx - 1, sy - 1, 2.5, 2.5);
+      ctx.fillStyle = i === 0 ? PALETTE.gold : PALETTE.pureWhite;
+      ctx.fillRect(sx - 0.5, sy - 0.5, 1.5, 1.5);
     }
   }
 
-  // World-space Charge Bar right under player feet (PRD §6.3)
+  // World-space Charge Bar right under player feet
   if (p.isCharging && p.chargeTime > 0.03) {
-    const ratio = Math.min(1, p.chargeTime / 0.6);
-    const barW = 14;
-    const bx = px - 7;
+    const ratio = Math.min(1, p.chargeTime / ARENA_CONSTANTS.MAX_CHARGE_TIME);
+    const barW = 15;
+    const bx = snapHalf(px - barW * 0.5);
     const by = py + 4;
     ctx.fillStyle = PALETTE.inkBlack;
     ctx.fillRect(bx - 1, by - 1, barW + 2, 4);
     ctx.fillStyle = PALETTE.slateDark;
     ctx.fillRect(bx, by, barW, 2);
     ctx.fillStyle = ratio >= 0.8 ? PALETTE.dangerRed : ratio >= 0.45 ? PALETTE.gold : PALETTE.pureWhite;
-    ctx.fillRect(bx, by, Math.max(1, Math.round(barW * ratio)), 2);
+    ctx.fillRect(bx, by, Math.max(1, snapHalf(barW * ratio)), 2);
   } else if (p.humanSlot !== null && p.dashCooldown > 0) {
-    // Subtle mini dash cooldown pip under feet
     const readyRatio = Math.max(0, 1 - p.dashCooldown / 1.2);
     const bx = px - 5;
     const by = py + 4;
     ctx.fillStyle = PALETTE.inkBlack;
-    ctx.fillRect(bx, by, 10, 2);
-    ctx.fillStyle = PALETTE.slateLight;
-    ctx.fillRect(bx, by, Math.round(10 * readyRatio), 1);
+    ctx.fillRect(bx - 0.5, by - 0.5, 11, 2.5);
+    ctx.fillStyle = PALETTE.iceCyan;
+    ctx.fillRect(bx, by, snapHalf(10 * readyRatio), 1.5);
   }
 
-  // Player indicator arrow above head for P1 / P2
+  // Crisp 2x-detailed arrow above active P1 / P2
   if (p.humanSlot !== null) {
-    const arrowY = topY - (p.stunTimer > 0 ? 7 : 5);
+    const arrowY = snapHalf(topY - (p.stunTimer > 0 ? 7.5 : 5));
     const arrowColor = p.humanSlot === 1 ? PALETTE.gold : PALETTE.iceCyan;
     ctx.fillStyle = PALETTE.inkBlack;
-    ctx.fillRect(px - 3, arrowY - 1, 6, 2);
-    ctx.fillRect(px - 2, arrowY + 1, 4, 1);
-    ctx.fillRect(px - 1, arrowY + 2, 2, 1);
+    ctx.beginPath();
+    ctx.moveTo(px - 3.5, arrowY - 1);
+    ctx.lineTo(px + 3.5, arrowY - 1);
+    ctx.lineTo(px, arrowY + 3);
+    ctx.closePath();
+    ctx.fill();
+
     ctx.fillStyle = arrowColor;
-    ctx.fillRect(px - 2, arrowY - 1, 4, 1);
-    ctx.fillRect(px - 1, arrowY, 2, 2);
+    ctx.beginPath();
+    ctx.moveTo(px - 2.5, arrowY - 0.5);
+    ctx.lineTo(px + 2.5, arrowY - 0.5);
+    ctx.lineTo(px, arrowY + 2);
+    ctx.closePath();
+    ctx.fill();
   }
 
   ctx.restore();
@@ -287,7 +377,6 @@ export function drawShotAimArrow(
 
   ctx.save();
 
-  // Dotted sightline pips ahead of the arrowhead when goal-locked or charging
   if (aim.isGoalLocked || chargeRatio > 0.15) {
     const pipCount = aim.isGoalLocked ? 3 : 2;
     for (let i = 1; i <= pipCount; i++) {
@@ -302,20 +391,19 @@ export function drawShotAimArrow(
       ) {
         break;
       }
-      const rx = Math.round(px);
-      const ry = Math.round(py);
+      const rx = snapHalf(px);
+      const ry = snapHalf(py);
       ctx.globalAlpha = 0.92 - i * 0.16;
       ctx.fillStyle = PALETTE.inkBlack;
-      ctx.fillRect(rx - 1, ry - 1, 3, 3);
+      ctx.fillRect(rx - 1.5, ry - 1.5, 3, 3);
       ctx.fillStyle = arrowColor;
-      ctx.fillRect(rx, ry, 2, 2);
+      ctx.fillRect(rx - 0.5, ry - 0.5, 1.5, 1.5);
     }
     ctx.globalAlpha = 1;
   }
 
-  // Dark outline pass (ensures crisp legibility on green turf, concrete, rooftop, and ice)
   ctx.strokeStyle = PALETTE.inkBlack;
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 3.5;
   ctx.lineCap = 'butt';
   ctx.beginPath();
   ctx.moveTo(sx, sy);
@@ -323,7 +411,7 @@ export function drawShotAimArrow(
   ctx.stroke();
 
   ctx.fillStyle = PALETTE.inkBlack;
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.beginPath();
   ctx.moveTo(tipX, tipY);
@@ -333,9 +421,8 @@ export function drawShotAimArrow(
   ctx.stroke();
   ctx.fill();
 
-  // Bright core shaft + arrowhead pass
   ctx.strokeStyle = arrowColor;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.75;
   ctx.beginPath();
   ctx.moveTo(sx, sy);
   ctx.lineTo(ex, ey);
@@ -349,12 +436,11 @@ export function drawShotAimArrow(
   ctx.closePath();
   ctx.fill();
 
-  // Crisp 1-2px bright core accent near arrowhead base while charging or goal-locked
   if (aim.isGoalLocked || chargeRatio > 0.25) {
-    const cx = Math.round(originX + aim.x * (tipDist - headLen * 0.55));
-    const cy = Math.round(originY + aim.y * (tipDist - headLen * 0.55));
+    const cx = snapHalf(originX + aim.x * (tipDist - headLen * 0.55));
+    const cy = snapHalf(originY + aim.y * (tipDist - headLen * 0.55));
     ctx.fillStyle = PALETTE.pureWhite;
-    ctx.fillRect(cx, cy, 1, 1);
+    ctx.fillRect(cx - 0.5, cy - 0.5, 1, 1);
   }
 
   ctx.restore();
@@ -369,24 +455,23 @@ export function drawPassTargetRing(
   targetY: number,
   animClock = 0
 ): void {
-  const tx = Math.round(targetX);
-  const ty = Math.round(targetY);
+  const tx = snapHalf(targetX);
+  const ty = snapHalf(targetY);
   const expand = Math.sin(animClock * 10) > 0 ? 1 : 0;
   const r = 7 + expand;
   ctx.save();
   ctx.strokeStyle = PALETTE.inkBlack;
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.ellipse(tx, ty, r + 1, Math.round((r + 1) * 0.65), 0, 0, Math.PI * 2);
+  ctx.ellipse(tx, ty, r + 1, (r + 1) * 0.65, 0, 0, Math.PI * 2);
   ctx.stroke();
 
   ctx.strokeStyle = PALETTE.iceCyan;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.ellipse(tx, ty, r, Math.round(r * 0.65), 0, 0, Math.PI * 2);
+  ctx.ellipse(tx, ty, r, r * 0.65, 0, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Small center pip showing the exact pass lead point
   ctx.fillStyle = PALETTE.iceCyan;
   ctx.fillRect(tx - 1, ty - 1, 2, 2);
   ctx.restore();
@@ -404,15 +489,16 @@ export function drawPixelBall(
   isCarried = false,
   isFeverBall = false
 ): void {
-  const bx = Math.round(x);
-  const shadowY = Math.round(y + radius * 0.4);
-  const drawY = Math.round(y - z * 0.65);
+  const bx = snapHalf(x);
+  const shadowY = snapHalf(y + radius * 0.45);
+  const drawY = snapHalf(y - z * 0.65);
 
+  ctx.save();
   if (isFeverBall) {
     ctx.strokeStyle = PALETTE.amber;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(bx, drawY, Math.round(radius + 2.5), 0, Math.PI * 2);
+    ctx.arc(bx, drawY, radius + 2.5, 0, Math.PI * 2);
     ctx.stroke();
   }
 
@@ -420,67 +506,88 @@ export function drawPixelBall(
     ctx.strokeStyle = PALETTE.gold;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.ellipse(bx, Math.round(y + 1), Math.round(radius + 3), Math.round(radius + 1), 0, 0, Math.PI * 2);
+    ctx.ellipse(bx, snapHalf(y + 1), radius + 3, radius + 1.2, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
 
-  // Drop shadow scales slightly smaller as ball rises vertically (PRD §6.1)
+  // Smooth ground elliptical drop shadow
   const shadowScale = Math.max(0.55, 1 - z * 0.02);
-  const sr = Math.max(2, Math.round(radius * shadowScale));
-  ctx.fillStyle = 'rgba(11, 14, 20, 0.45)';
-  ctx.fillRect(bx - sr, shadowY - 1, sr * 2, 3);
-  ctx.fillRect(bx - sr + 1, shadowY - 2, Math.max(1, sr * 2 - 2), 5);
+  const sr = Math.max(2, radius * shadowScale);
+  ctx.fillStyle = 'rgba(8, 12, 18, 0.42)';
+  ctx.beginPath();
+  ctx.ellipse(bx, shadowY, sr, sr * 0.55, 0, 0, Math.PI * 2);
+  ctx.fill();
 
-  const r = Math.round(radius);
-  // Crisp 1px black outline circle
   const isDangerFlash =
     hotPotatoActive &&
     hotPotatoTimer >= 4.0 &&
     Math.floor(hotPotatoTimer * (6 + (hotPotatoTimer - 4) * 5)) % 2 === 0;
 
+  // Crisp outline
   ctx.fillStyle = PALETTE.inkBlack;
   ctx.beginPath();
-  ctx.arc(bx, drawY, r + 1, 0, Math.PI * 2);
+  ctx.arc(bx, drawY, radius + 1, 0, Math.PI * 2);
   ctx.fill();
 
-  // Base ball body
+  // Base sphere
   ctx.fillStyle = isDangerFlash ? PALETTE.dangerRed : PALETTE.pureWhite;
   ctx.beginPath();
-  ctx.arc(bx, drawY, r, 0, Math.PI * 2);
+  ctx.arc(bx, drawY, radius, 0, Math.PI * 2);
   ctx.fill();
 
-  // Lower right crescent shading
-  ctx.fillStyle = isDangerFlash ? PALETTE.teamADark : PALETTE.netColor;
+  // Shading crescent clipped cleanly to ball
+  ctx.save();
   ctx.beginPath();
-  ctx.arc(bx + 1, drawY + 1, Math.max(1, r - 1), 0.1, Math.PI * 0.95);
+  ctx.arc(bx, drawY, radius, 0, Math.PI * 2);
+  ctx.clip();
+
+  ctx.fillStyle = isDangerFlash ? PALETTE.teamADark : '#c4d2e4';
+  ctx.beginPath();
+  ctx.arc(bx + radius * 0.35, drawY + radius * 0.35, radius, 0, Math.PI * 2);
+  ctx.strokeStyle = 'transparent';
   ctx.fill();
 
-  // Rotating soccer pentagon patch
-  const patchX = Math.round(bx + Math.cos(rollAngle) * (r * 0.42));
-  const patchY = Math.round(drawY + Math.sin(rollAngle) * (r * 0.38));
-  const patchSize = r >= 8 ? 4 : 2;
-  ctx.fillStyle = isDangerFlash ? PALETTE.gold : PALETTE.deepNavy;
-  ctx.fillRect(patchX - Math.floor(patchSize / 2), patchY - Math.floor(patchSize / 2), patchSize, patchSize);
+  ctx.fillStyle = isDangerFlash ? PALETTE.dangerRed : PALETTE.pureWhite;
+  ctx.beginPath();
+  ctx.arc(bx - radius * 0.2, drawY - radius * 0.2, radius * 0.88, 0, Math.PI * 2);
+  ctx.fill();
 
-  // Highlight pixel
+  // Rotating soccer pentagon patches
+  const patchColor = isDangerFlash ? PALETTE.gold : PALETTE.deepNavy;
+  const patchSize = Math.max(1.5, radius * 0.42);
+  const p1x = snapHalf(bx + Math.cos(rollAngle) * (radius * 0.44));
+  const p1y = snapHalf(drawY + Math.sin(rollAngle) * (radius * 0.38));
+  const p2x = snapHalf(bx + Math.cos(rollAngle + 2.2) * (radius * 0.52));
+  const p2y = snapHalf(drawY + Math.sin(rollAngle + 2.2) * (radius * 0.46));
+  ctx.fillStyle = patchColor;
+  ctx.beginPath();
+  ctx.arc(p1x, p1y, patchSize * 0.65, 0, Math.PI * 2);
+  ctx.arc(p2x, p2y, patchSize * 0.48, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Specular highlight pixel
   ctx.fillStyle = PALETTE.pureWhite;
-  ctx.fillRect(bx - Math.max(1, Math.floor(r * 0.45)), drawY - Math.max(1, Math.floor(r * 0.45)), r >= 8 ? 3 : 2, r >= 8 ? 2 : 1);
+  ctx.beginPath();
+  ctx.arc(bx - radius * 0.35, drawY - radius * 0.35, Math.max(1, radius * 0.24), 0, Math.PI * 2);
+  ctx.fill();
 
-  // Hot Potato countdown arc / fuse bar above ball
+  // Hot Potato countdown fuse bar above ball
   if (hotPotatoActive && hotPotatoTimer >= 2.5) {
     const fuseRatio = Math.min(1, hotPotatoTimer / 6.0);
     const barW = 14;
-    const fy = drawY - r - 6;
+    const fy = snapHalf(drawY - radius - 6);
     ctx.fillStyle = PALETTE.inkBlack;
     ctx.fillRect(bx - 7, fy, barW, 3);
     ctx.fillStyle = hotPotatoTimer >= 4.0 ? PALETTE.dangerRed : PALETTE.amber;
-    ctx.fillRect(bx - 6, fy + 1, Math.max(1, Math.round((barW - 2) * fuseRatio)), 1);
+    ctx.fillRect(bx - 6, fy + 1, Math.max(1, snapHalf((barW - 2) * fuseRatio)), 1);
   }
+  ctx.restore();
 }
 
 export function drawMutatorIcon(ctx: CanvasRenderingContext2D, type: MutatorType, x: number, y: number): void {
-  const ix = Math.round(x);
-  const iy = Math.round(y);
+  const ix = snapHalf(x);
+  const iy = snapHalf(y);
   ctx.fillStyle = PALETTE.inkBlack;
   ctx.fillRect(ix, iy, 12, 12);
   ctx.fillStyle = PALETTE.slateDark;
@@ -489,15 +596,17 @@ export function drawMutatorIcon(ctx: CanvasRenderingContext2D, type: MutatorType
   switch (type) {
     case 'giant_ball':
       ctx.fillStyle = PALETTE.pureWhite;
-      ctx.fillRect(ix + 3, iy + 3, 6, 6);
+      ctx.beginPath();
+      ctx.arc(ix + 6, iy + 6, 3.5, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = PALETTE.inkBlack;
       ctx.fillRect(ix + 5, iy + 5, 2, 2);
       break;
     case 'slippery_pitch':
       ctx.fillStyle = PALETTE.iceCyan;
-      ctx.fillRect(ix + 5, iy + 2, 2, 8);
-      ctx.fillRect(ix + 2, iy + 5, 8, 2);
-      ctx.fillRect(ix + 3, iy + 3, 6, 6);
+      ctx.fillRect(ix + 5.5, iy + 2, 1, 8);
+      ctx.fillRect(ix + 2, iy + 5.5, 8, 1);
+      ctx.fillRect(ix + 3.5, iy + 3.5, 5, 5);
       break;
     case 'pinball_mode':
       ctx.fillStyle = PALETTE.pinballGlow;
@@ -508,9 +617,11 @@ export function drawMutatorIcon(ctx: CanvasRenderingContext2D, type: MutatorType
       break;
     case 'hot_potato':
       ctx.fillStyle = PALETTE.dangerRed;
-      ctx.fillRect(ix + 3, iy + 4, 6, 6);
+      ctx.beginPath();
+      ctx.arc(ix + 6, iy + 7, 3, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = PALETTE.gold;
-      ctx.fillRect(ix + 6, iy + 2, 2, 2);
+      ctx.fillRect(ix + 6, iy + 2.5, 2, 2);
       break;
     case 'wide_goals':
       ctx.fillStyle = PALETTE.pureWhite;
@@ -520,9 +631,12 @@ export function drawMutatorIcon(ctx: CanvasRenderingContext2D, type: MutatorType
       break;
     case 'multi_ball':
       ctx.fillStyle = PALETTE.pureWhite;
-      ctx.fillRect(ix + 2, iy + 3, 4, 4);
-      ctx.fillStyle = PALETTE.gold;
-      ctx.fillRect(ix + 6, iy + 5, 4, 4);
+      ctx.beginPath();
+      ctx.arc(ix + 4.5, iy + 4.5, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(ix + 7.5, iy + 7.5, 2, 0, Math.PI * 2);
+      ctx.fill();
       break;
   }
 }

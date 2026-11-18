@@ -220,6 +220,80 @@ describe('Gamepad input', () => {
   });
 });
 
+describe('Match result recording', () => {
+  it('still records the match when the player skips the replay that ends the game', () => {
+    // Regression: skipReplay() moves the match to FULL_TIME during input handling, which made the
+    // frame's `simPaused` check true. The result write lived inside the `!simPaused` branch, so
+    // skipping a match-ending replay silently dropped the whole match from career records.
+    const config: MatchConfig = {
+      mode: '1v1_ai',
+      arena: 'classic',
+      pitchSize: 'standard',
+      difficulty: 'pro',
+      durationSeconds: 60,
+      mutatorsEnabled: false,
+      replayEnabled: true,
+      controlStyle: 'dribble',
+      displayMode: 'auto',
+      teamAKit: 'garuda',
+      teamBKit: 'cyber',
+    };
+    const pausedPhases = ['MENU', 'PAUSED', 'FULL_TIME', 'PERK_SELECT', 'CUP_CHAMPION'];
+
+    const simulate = (skipReplay: boolean) => {
+      const match = new MatchState(() => 0.5);
+      match.startMatch(config);
+      const career = new CareerRecordsStore(null);
+      let recorded = false;
+      const recordCompletedIfNeeded = () => {
+        if (match.phase === 'FULL_TIME' && !recorded) {
+          career.recordCompletedMatch({
+            isPracticeSandbox: match.isPracticeSandbox(),
+            winner: match.winner,
+            scoreA: match.scoreA,
+            stats: match.stats,
+          });
+          recorded = true;
+        }
+      };
+
+      // A golden-goal winner whose replay ends the match.
+      match.phase = 'REPLAY';
+      match.isGoldenGoal = true;
+      match.scoreA = 2;
+      match.scoreB = 1;
+      match.winner = 'A';
+      (match as unknown as { pendingFullTimeAfterGoal: boolean }).pendingFullTimeAfterGoal = true;
+
+      // Read through a function so TypeScript does not keep the literal 'REPLAY' narrowing:
+      // skipReplay()/update() change the phase during the loop.
+      const phase = () => match.phase as string;
+
+      for (let frame = 0; frame < 900; frame++) {
+        if (skipReplay && frame === 0 && phase() === 'REPLAY') {
+          match.skipReplay();
+        }
+        const simPaused = pausedPhases.includes(phase());
+        if (!simPaused && phase() === 'REPLAY') {
+          match.update(FIXED_DT, empty());
+        }
+        // Mirrors main.ts: recording happens every fixed frame, outside the simPaused branches.
+        recordCompletedIfNeeded();
+        if (phase() === 'FULL_TIME' && frame > 3) break;
+      }
+      return career.getRecords();
+    };
+
+    const skipped = simulate(true);
+    expect(skipped.matchesPlayed).toBe(1);
+    expect(skipped.wins).toBe(1);
+    expect(skipped.goalsScored).toBe(2);
+
+    const played = simulate(false);
+    expect(played).toMatchObject({ matchesPlayed: 1, wins: 1, goalsScored: 2 });
+  });
+});
+
 describe('Derby Cup restart', () => {
   it('restartCurrentRound keeps round and perks while rematch starts a fresh cup', () => {
     const match = new MatchState(() => 0.5);

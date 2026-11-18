@@ -492,7 +492,7 @@ export class InputManager {
     this.writeClass('menuBar', els.menuBar, 'active', visibility.showMenuBar);
     this.writeClass('menuBar', els.menuBar, 'portrait', state.isPortrait);
     this.writeClass('menuBar', els.menuBar, 'landscape', !state.isPortrait);
-    this.writeText('menuFs', els.menuFsBtn, state.isFullscreen ? 'KELUAR FULLSCREEN' : '[ ] FULLSCREEN MODE');
+    this.writeText('menuFs', els.menuFsBtn, state.isFullscreen ? 'EXIT FULLSCREEN' : '[ ] FULLSCREEN MODE');
     this.writeClass('menuFs', els.menuFsBtn, 'active', state.isFullscreen);
     this.writeText('menuPad', els.menuPadBtn, `PAD:${getDisplayModeLabel(state.displayMode)}`);
 

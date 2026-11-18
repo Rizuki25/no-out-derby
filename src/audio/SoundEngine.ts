@@ -3,7 +3,8 @@ import { GameEvent } from '../types.ts';
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   private noiseBuffer: AudioBuffer | null = null;
-  private muted = false;
+  private userMuted = false;
+  private externalMuteReasons = new Set<string>();
   private bgmPlaying = false;
   private bgmStep = 0;
   private nextNoteTime = 0;
@@ -18,18 +19,43 @@ export class SoundEngine {
       this.ctx = new AudioCtx();
       this.noiseBuffer = this.createNoiseBuffer(this.ctx);
     }
-    if (this.ctx.state === 'suspended') {
+    if (!this.isMuted() && this.ctx.state === 'suspended') {
       void this.ctx.resume();
     }
   }
 
+  isUserMuted(): boolean {
+    return this.userMuted;
+  }
+
   isMuted(): boolean {
-    return this.muted;
+    return this.userMuted || this.externalMuteReasons.size > 0;
   }
 
   toggleMute(): boolean {
-    this.muted = !this.muted;
-    return this.muted;
+    this.userMuted = !this.userMuted;
+    this.syncAudioContextMuteState();
+    return this.isMuted();
+  }
+
+  setExternalMute(reason: string, muted: boolean): void {
+    if (muted) {
+      this.externalMuteReasons.add(reason);
+    } else {
+      this.externalMuteReasons.delete(reason);
+    }
+    this.syncAudioContextMuteState();
+  }
+
+  private syncAudioContextMuteState(): void {
+    if (!this.ctx) return;
+    if (this.isMuted()) {
+      if (this.ctx.state === 'running') {
+        void this.ctx.suspend();
+      }
+    } else if (this.ctx.state === 'suspended') {
+      void this.ctx.resume();
+    }
   }
 
   setBgmFastMode(fast: boolean): void {
@@ -55,7 +81,7 @@ export class SoundEngine {
   }
 
   playMenuBlip(confirm = false): void {
-    if (this.muted) return;
+    if (this.isMuted()) return;
     this.unlock();
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
@@ -74,7 +100,7 @@ export class SoundEngine {
   }
 
   handleEvents(events: GameEvent[]): void {
-    if (this.muted || events.length === 0) return;
+    if (this.isMuted() || events.length === 0) return;
     if (!this.ctx || this.ctx.state === 'suspended') return;
 
     for (const ev of events) {
@@ -496,7 +522,7 @@ export class SoundEngine {
     const leadNotes = [523.3, 0, 622.3, 0, 587.3, 523.3, 466.2, 0, 392.0, 0, 466.2, 523.3, 622.3, 0, 587.3, 466.2];
 
     while (this.nextNoteTime < this.ctx.currentTime + 0.14) {
-      if (!this.muted) {
+      if (!this.isMuted()) {
         const step = this.bgmStep % 16;
         const bassFreq = bassNotes[step];
         const leadFreq = leadNotes[step];

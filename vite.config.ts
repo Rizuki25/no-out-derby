@@ -2,6 +2,8 @@
 import { defineConfig } from 'vitest/config';
 import { loadEnv } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { resolveIceServers } from './src/net/IceConfig.js';
 import {
   handleSignalingRequest,
@@ -131,14 +133,47 @@ function attachDevSignalingPlugin(mode: string) {
   };
 }
 
-export default defineConfig(({ mode }) => ({
-  base: './',
-  plugins: [attachDevSignalingPlugin(mode)],
-  build: {
-    target: 'es2022',
-  },
-  test: {
-    environment: 'node',
-    include: ['src/tests/**/*.test.ts'],
-  },
-}));
+const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+function createCrazyGamesStripOnlinePlugin(isCrazyGames: boolean) {
+  return {
+    name: 'crazygames-strip-online',
+    enforce: 'pre' as const,
+    resolveId(source: string) {
+      if (!isCrazyGames) return null;
+      if (/(?:^|\/)OnlineFeature(?:\.(?:ts|js))?$/.test(source)) {
+        return path.resolve(ROOT_DIR, 'src/net/OnlineFeatureDisabled.ts');
+      }
+      return null;
+    },
+    transformIndexHtml(html: string) {
+      if (!isCrazyGames) return html;
+      return html
+        .replace(
+          /\s*\/\* CRAZYGAMES_STRIP_ONLINE_START \*\/[\s\S]*?\/\* CRAZYGAMES_STRIP_ONLINE_END \*\//g,
+          ''
+        )
+        .replace(
+          /\s*<!-- CRAZYGAMES_STRIP_ONLINE_START -->[\s\S]*?<!-- CRAZYGAMES_STRIP_ONLINE_END -->/g,
+          ''
+        );
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const isCrazyGames = process.env.VITE_CRAZYGAMES === 'true' || env.VITE_CRAZYGAMES === 'true';
+
+  return {
+    base: './',
+    plugins: [attachDevSignalingPlugin(mode), createCrazyGamesStripOnlinePlugin(isCrazyGames)],
+    build: {
+      target: 'es2022',
+    },
+    test: {
+      environment: 'node',
+      include: ['src/tests/**/*.test.ts'],
+    },
+  };
+});
